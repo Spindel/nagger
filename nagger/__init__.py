@@ -8,8 +8,6 @@ import gitlab
 class CmdError(Exception):
     """Command not found error"""
 
-    ...
-
 
 def get_api_url():
     """Gets a api url from CI variables"""
