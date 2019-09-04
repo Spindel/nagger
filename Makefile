@@ -2,7 +2,7 @@ ARCHIVE_PREFIX = /srv/app/
 SOURCE_ARCHIVE = nagger.tar
 IMAGE_FILES += $(SOURCE_ARCHIVE)
 
-IMAGE_REPO = registry.gitlab.com/spindel/nagger 
+IMAGE_REPO = registry.gitlab.com/modioab/nagger 
 include build.mk
 
 check: ## check style with flake8

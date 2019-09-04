@@ -11,4 +11,4 @@ LABEL "se.modio.ci.url"=$URL "se.modio.ci.branch"=$BRANCH "se.modio.ci.commit"=$
 
 ADD nagger.tar /
 RUN cd /srv/app && pip install .
-ENTRYPOINT ["/usr/local/bin/nagger"]
+CMD ["/usr/local/bin/nagger"]
