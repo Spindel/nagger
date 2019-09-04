@@ -6,7 +6,7 @@
 
 import unittest
 
-from nagger import nagger
+import nagger
 
 
 class TestNagger(unittest.TestCase):
@@ -20,3 +20,4 @@ class TestNagger(unittest.TestCase):
 
     def test_000_something(self):
         """Test something."""
+        assert nagger

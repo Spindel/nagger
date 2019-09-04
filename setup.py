@@ -44,4 +44,9 @@ setup(
     url='https://gitlab.com/Spindel/nagger',
     version='0.1.0',
     zip_safe=False,
+    entry_points={
+        "console_scripts": [
+            "nagger = nagger:main",
+        ]
+    }
 )
