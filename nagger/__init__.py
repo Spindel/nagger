@@ -13,10 +13,14 @@ class CmdError(Exception):
 
 def get_api_url():
     """Gets a api url from CI variables"""
+    from urllib.parse import urlparse
+
     val = os.environ.get("CI_API_V4_URL")
     assert val, "Environment variable: CI_API_V4_URL missing"
-    print("Using", val)
-    return val
+    parsed_uri = urlparse(val)
+    result = '{uri.scheme}://{uri.netloc}/'.format(uri=parsed_uri)
+    print("Using", result)
+    return result
 
 
 def get_api_token():
