@@ -54,12 +54,20 @@ def remove_own_emoji(thing, user_id, emoji="house"):
         e.delete()
 
 
+def print_ci():
+    for key in os.environ:
+        if key.startswith("CI"):
+            print(key, os.environ[key])
+
+
 def mr_nag():
     """Merge request nagger. meant to be run in a CI job"""
     proj_id = get_project_id()
     mr_id = get_mr_id()
 
     gl = get_gitlab()
+    gl.auth()
+    print("User:", gl.user.username)
     project = gl.projects.get(proj_id)
     mr = project.mergerequests.get(mr_id)
     author = mr.author.username
@@ -119,6 +127,7 @@ def get_cmd():
 
 def main():
     """Main command"""
+    print_ci()
     try:
         command = get_cmd()
     except CmdError:
