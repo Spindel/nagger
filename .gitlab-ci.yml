@@ -4,23 +4,33 @@ stages:
     - test
     - publish
 
+.only-default: &only-default
+  only:
+    - tags
+    - branches
+    - merge_requests
+
 container:
     image: registry.gitlab.com/modioab/base-image/fedora-29/build:master
     stage: publish
+    only:
+        - master
+        - tags
     script:
         - make -f build.mk login
         - make build-publish
 
 check:
+    <<: *only-default
     image: registry.gitlab.com/modioab/base-image/fedora-29/build:master
     stage: test
-    when: always
     before_script:
         - pip3 install --upgrade --upgrade-strategy eager flake8 black
     script:
         - make check
 
 test:
+    <<: *only-default
     image: registry.gitlab.com/modioab/base-image/fedora-29/python:master
     stage: test
     when: always
@@ -31,7 +41,8 @@ test:
 
 
 nagger:
-    image: registry.gitlab.com/spindel/nagger/nagger:master
+    image:
+        name: registry.gitlab.com/modioab/nagger:master
     stage: test
     only:
         - merge_requests
