@@ -7,8 +7,6 @@ stages:
 container:
     image: registry.gitlab.com/modioab/base-image/fedora-29/build:master
     stage: publish
-    tags:
-        - x86_64
     script:
         - make -f build.mk login
         - make build-publish
@@ -17,8 +15,6 @@ check:
     image: registry.gitlab.com/modioab/base-image/fedora-29/build:master
     stage: test
     when: always
-    tags:
-        - x86_64
     before_script:
         - pip3 install --upgrade --upgrade-strategy eager flake8 black
     script:
@@ -28,8 +24,6 @@ test:
     image: registry.gitlab.com/modioab/base-image/fedora-29/python:master
     stage: test
     when: always
-    tags:
-        - x86_64
     before_script:
         - pip3 install -r requirements_dev.txt
     script:
@@ -41,7 +35,5 @@ nagger:
     stage: test
     only:
         - merge_requests
-    tags:
-        - x86_64
     script:
         - nagger nag
