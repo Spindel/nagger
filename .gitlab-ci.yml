@@ -40,6 +40,18 @@ test:
         - python3 setup.py test
 
 
+something:
+    image: registry.gitlab.com/modioab/base-image/fedora-29/python:master
+    stage: test
+    before_script:
+        - pip3 install .
+    only:
+        - merge_requests
+    script:
+        - nagger nag
+
+
+
 nagger:
     image:
         name: registry.gitlab.com/modioab/nagger:master
