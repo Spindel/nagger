@@ -30,14 +30,13 @@ test:
     when: always
     before_script:
         - pip3 install -r requirements_dev.txt
+        - pip3 install .
     script:
         - python3 setup.py test
+        - nagger nag
 
 nagger:
-#    image: registry.gitlab.com/modioab/nagger:master
-    image: registry.gitlab.com/modioab/base-image/fedora-29/python:master
+    image: registry.gitlab.com/modioab/nagger:master
     stage: nag
-    before_script:
-        - pip3 install .
     script:
         - nagger nag
