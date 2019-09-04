@@ -62,7 +62,7 @@ def mr_nag():
     mr_id = get_mr_id()
 
     gl = get_gitlab()
-    project = gl.project.get(proj_id)
+    project = gl.projects.get(proj_id)
     mr = project.mergerequests.get(mr_id)
     author = mr.author.username
 
