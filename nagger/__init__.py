@@ -19,7 +19,7 @@ def get_api_url():
     assert val, "Environment variable: CI_API_V4_URL missing"
     parsed_uri = urlparse(val)
     result = '{uri.scheme}://{uri.netloc}/'.format(uri=parsed_uri)
-    print("Using", result)
+    print("Using url", result)
     return result
 
 
@@ -34,7 +34,7 @@ def get_mr_id():
     """Gets a merge request id from CI variables"""
     val = os.environ.get("CI_MERGE_REQUEST_ID")
     assert val, "Environment variable: CI_MERGE_REQUEST_ID missing"
-    print("Using", val)
+    print("Using merge request", val)
     return val
 
 
@@ -42,7 +42,7 @@ def get_project_id():
     """Gets a project id from CI variables"""
     val = os.environ.get("CI_MERGE_REQUEST_PROJECT_ID")
     assert val, "Environment variable: CI_MERGE_REQUEST_PROJECT_ID missing"
-    print("Using", val)
+    print("Using project id", val)
     return val
 
 
