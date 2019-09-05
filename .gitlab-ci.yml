@@ -1,6 +1,7 @@
 ---
 
 stages:
+    - nag
     - test
     - publish
 
@@ -29,11 +30,11 @@ test:
     script:
         - python3 setup.py test
 
-
 nagger:
-    image: registry.gitlab.com/modioab/nagger:master
-    stage: test
-    only:
-        - merge_requests
+#    image: registry.gitlab.com/modioab/nagger:master
+    image: registry.gitlab.com/modioab/base-image/fedora-29/python:master
+    stage: nag
+    before_script:
+        - pip3 install .
     script:
         - nagger nag
