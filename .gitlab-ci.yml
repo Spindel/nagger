@@ -31,7 +31,7 @@ test:
 
 
 nagger:
-    image: registry.gitlab.com/spindel/nagger/nagger:master
+    image: registry.gitlab.com/modioab/nagger:master
     stage: test
     only:
         - merge_requests
