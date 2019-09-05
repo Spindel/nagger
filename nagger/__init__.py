@@ -91,9 +91,10 @@ def add_own_emoji(thing, user_id, emoji="house"):
         thing.awardemojis.create({"name": emoji})
 
 
-def print_ci():
+def debug_variables():
+    """Print all CI related variables"""
     ci_keys = (k for k in os.environ if k.startswith("CI"))
-    for key in ci_keys:
+    for key in sorted(ci_keys):
         val = os.environ[key]
         print(f"{key}={val}")
 
@@ -227,7 +228,7 @@ def release_tag():
     )
 
 
-COMMANDS = {"nag": mr_nag, "release": release_tag}
+COMMANDS = {"nag": mr_nag, "release": release_tag, "debug_variables": debug_variables}
 
 
 def helptext():
@@ -255,7 +256,6 @@ def get_cmd():
 
 def main():
     """Main command"""
-    print_ci()
     try:
         command = get_cmd()
     except CmdError:
