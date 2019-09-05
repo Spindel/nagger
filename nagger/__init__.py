@@ -22,7 +22,7 @@ def get_api_url():
     # CI_API_.. is a full path, we just need the scheme+domain.
     parsed_uri = urlparse(val)
     result = "{uri.scheme}://{uri.netloc}/".format(uri=parsed_uri)
-    _log = _log.bind(api_url=result)
+    _log = _log.bind(API_URL=result)
     return result
 
 
@@ -38,7 +38,7 @@ def get_mr_iid(api):
     global _log
     val = os.environ.get("CI_MERGE_REQUEST_IID")
     assert val, "Environment variable: CI_MERGE_REQUEST_IID missing"
-    _log = _log.bind(merge_request_iid=val)
+    _log = _log.bind(CI_MERGE_REQUEST_IID=val)
     return val
 
 
@@ -48,7 +48,7 @@ def get_project_id():
     val = os.environ.get("CI_PROJECT_ID")
     assert val, "Environment variable: CI_PROJECT_ID missing"
     val = int(val)
-    _log = _log.bind(project_id=val)
+    _log = _log.bind(CI_PROJECT_ID=val)
     return val
 
 
@@ -57,7 +57,7 @@ def get_commit_tag():
     global _log
     val = os.environ.get("CI_COMMIT_TAG")
     assert val, "Environment variable: CI_COMMIT_TAG missing"
-    _log = _log.bind(tag=val)
+    _log = _log.bind(CI_COMMIT_TAG=val)
     return val
 
 
@@ -80,25 +80,30 @@ def get_gitlab():
     gl = Gitlab(api_url, api_token)
     # Authenticate so we can get our .user. data
     gl.auth()
-    _log = _log.bind(user=gl.user.username)
+    _log = _log.bind(API_USER=gl.user.username)
     return gl
 
 
 def remove_own_emoji(thing, user_id, emoji="house"):
     """Remove an emoji owned by user_id from thing"""
+    global _log
     emojis = thing.awardemojis.list()
     my_emojis = (e for e in emojis if e.user["id"] == user_id)
-    to_remove = (e for e in my_emojis if e.name == emoji)
+    to_remove = [e for e in my_emojis if e.name == emoji]
     for e in to_remove:
+        _log.bind(emoji_removed=emoji)
         e.delete()
+    return bool(to_remove)
 
 
 def add_own_emoji(thing, user_id, emoji="house"):
     """Remove an emoji owned by user_id from thing"""
+    global _log
     emojis = thing.awardemojis.list()
     my_emojis = (e for e in emojis if e.user["id"] == user_id)
     matching = [e for e in my_emojis if e.name == emoji]
     if not matching:
+        _log.bind(emoji_added=emoji)
         thing.awardemojis.create({"name": emoji})
 
 
@@ -150,6 +155,7 @@ def nag_this_mr(api, mr):
     project = api.projects.get(mr.project_id)
 
     author = mr.author["username"]
+    _log = _log.bind(project=project.path_with_namespace)
     _log = _log.bind(mr_title=mr.title, author=author, nagger_user_id=user_id)
 
     bad_note = (
@@ -307,6 +313,7 @@ def helptext():
 
 def get_cmd():
     """Returns a function callable from sys.argv"""
+    global _log
     if len(sys.argv) != 2:
         raise CmdError
 
@@ -315,17 +322,23 @@ def get_cmd():
         command = COMMANDS[cmd]
     except (KeyError, IndexError):
         raise CmdError
+    _log.bind(command=cmd)
     return command
 
 
 def main():
     """Main command"""
+    global _log
     try:
         command = get_cmd()
     except CmdError:
         helptext()
         sys.exit(1)
-    command()
+    try:
+        command()
+    except Exception:
+        _log.exception("Error in command")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
