@@ -8,6 +8,9 @@ stages:
 container:
     image: registry.gitlab.com/modioab/base-image/fedora-29/build:master
     stage: publish
+    only:
+        - master
+        - tags
     script:
         - make -f build.mk login
         - make build-publish

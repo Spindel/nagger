@@ -122,26 +122,39 @@ def mr_nag():
     )
 
     _log = _log.bind(title=mr.title)
-    if mr.milestone is None:
-        old_title = mr.title
-        labels = set(mr.labels)
-        if "Ready" in labels:
-            labels.remove("Ready")
-        labels.add("Pending")
-        mr.labels = list(labels)
-        if not mr.title.startswith("WIP:"):
-            mr.title = f"WIP: {old_title}"
 
+    if mr.milestone is None:
         remove_own_emoji(mr, user_id=gl.user.id, emoji="house")
         add_own_emoji(mr, user_id=gl.user.id, emoji="house_abandoned")
-
-        _log.msg("Updated MR because missing Milestone")
-        mr.save()
         mr.notes.create({"body": note})
+        _log = _log.bind(commented=True, missing_milestone=True)
+
+        mr = project.mergerequests.get(mr_iid)
+        if not mr.title.startswith("WIP:"):
+            old_title = mr.title
+            mr.title = f"WIP: {old_title}"
+            try:
+                mr.save()
+                _log = _log.bind(title=mr.title)
+            except Exception:
+                _log.exception("Error saving title, permission error?")
+
+        mr = project.mergerequests.get(mr_iid)
+        labels = set(mr.labels)
+        if ("Ready" in labels) or ("Pending" not in labels):
+            labels.remove("Ready")
+            labels.add("Pending")
+            mr.labels = list(labels)
+            try:
+                mr.save()
+                _log = _log.bind(removed_label="Ready", added_label="Pending")
+            except Exception:
+                _log.exception("Error saving labels, permission error?")
+        _log.msg("Updated MR due to missing Milestone")
     else:
-        _log.msg("Removing ugly emoji due to having Milestone")
         remove_own_emoji(mr, user_id=gl.user.id, emoji="house_abandoned")
         add_own_emoji(mr, user_id=gl.user.id, emoji="house")
+        _log.msg("Removing ugly emoji due to having Milestone")
 
 
 def release_tag():
