@@ -29,9 +29,9 @@ def get_api_url():
 
 def get_api_token():
     """Gets a api token from CI variables"""
-    val = os.environ.get("CI_JOB_TOKEN")
-    assert val, "Environment variable: CI_JOB_TOKEN missing"
-    return val
+    val = os.environ.get("NAGGUS_KEY")
+    assert val, "Environment variable: NAGGUS_KEY is missing"
+    return val.strip()
 
 
 def get_mr_iid():
@@ -203,7 +203,9 @@ def helptext():
     command = sys.argv[0]
     print(f"Usage: {command} [subcommand]")
     for k in COMMANDS:
-        print(k)
+        print("\t", k)
+    print("\n")
+    print("We expect NAGGUS_KEY  environment to contain an API key")
 
 
 def get_cmd():
