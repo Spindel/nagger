@@ -247,6 +247,36 @@ def mr_nag():
         nag_this_mr(gl, mr)
 
 
+def milestone_tramp():
+    global _log
+
+    gl = get_gitlab()
+
+    milestone_name = "Release 3.12"
+    group = gl.groups.get("ModioAB")
+    ms = group.milestones.list()
+    our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
+
+    milestone = next(our_ms)
+    mrs = milestone.merge_requests()
+
+    changelog = {}
+    merged_mr = (m for m in mrs if m.state == "merged")
+    for mr in merged_mr:
+        proj_id = mr.project_id
+        title = mr.title
+        items = changelog.setdefault(proj_id, [])
+        items.append(title)
+
+    result = ""
+    for proj_id, changes in changelog.items():
+        proj = gl.projects.get(proj_id)
+        header = f"## {proj.path_with_namespace}"
+        rows = (f"* {row}" for row in changes)
+        result += header + "\n\n" + "\n".join(rows) + "\n\n"
+    print(result)
+
+
 def release_tag():
     """Merge request nagger. meant to be run in a CI job"""
     global _log
@@ -298,7 +328,12 @@ def release_tag():
     )
 
 
-COMMANDS = {"nag": mr_nag, "release": release_tag, "debug_variables": debug_variables}
+COMMANDS = {
+    "nag": mr_nag,
+    "release": release_tag,
+    "debug_variables": debug_variables,
+    "milestone": milestone_tramp,
+}
 
 
 def helptext():
