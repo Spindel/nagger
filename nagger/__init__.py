@@ -47,6 +47,7 @@ def get_project_id():
     global _log
     val = os.environ.get("CI_PROJECT_ID")
     assert val, "Environment variable: CI_PROJECT_ID missing"
+    val = int(val)
     _log = _log.bind(project_id=val)
     return val
 
@@ -72,6 +73,7 @@ def get_commit_sha():
 def get_gitlab():
     """Create a gitlab instance from CI variables"""
     from gitlab import Gitlab
+
     global _log
     api_token = get_api_token()
     api_url = get_api_url()
@@ -145,40 +147,62 @@ def nag_this_mr(api, mr):
     """Nag on a single mr"""
     global _log
     user_id = api.user.id
-
-    project = api.projects.get(mr["project_id"])
+    project = api.projects.get(mr.project_id)
 
     author = mr.author["username"]
-    _log = _log.bind(
-        mr_description=mr.description, author=author, nagger_user_id=user_id
-    )
+    _log = _log.bind(mr_title=mr.title, author=author, nagger_user_id=user_id)
 
-    note = (
-        f"Hello @{author}.  "
-        "You forgot to add a Milestone to this Merge Request.  \n"
+    bad_note = (
+        f"Hello @{author}.\n\n"
+        "You forgot to add a Milestone to this Merge Request.\n\n"
         "I will try to mark it as `Pending` and `WIP` "
-        "so you do not forget to add a Milestone."
-        "\n"
+        "so you do not forget to add a Milestone.\n\n"
         "Please, make sure the title is descriptive."
     )
-    _log = _log.bind(title=mr.title)
+    ok_note = (
+        f"Hello @{author}.\n\n"
+        "~~You forgot to add a Milestone to this Merge Request.~~\n\n"
+        "~~I will try to mark it as `Pending` and `WIP` "
+        "so you do not forget to add a Milestone.~~\n\n"
+        "Please, make sure the title is descriptive."
+    )
 
     if mr.milestone is None:
+        _log = _log.bind(missing_milestone=True, commented=False)
         remove_own_emoji(mr, user_id=user_id, emoji="house")
         add_own_emoji(mr, user_id=user_id, emoji="house_abandoned")
-        mr.notes.create({"body": note})
+        own_notes = [n for n in mr.notes.list() if n.author["id"] == user_id]
+        if not own_notes:
+            mr.notes.create({"body": bad_note})
+            _log = _log.bind(commented=True)
 
-        _log = _log.bind(commented=True, missing_milestone=True)
-
+        # in case we have an old modification (save failed) we re-load from
+        # server
         mr = project.mergerequests.get(mr.iid)
         if not mr.work_in_progress:
             make_wip(mr)
 
+        # in case we have an old modification (save failed) we re-load from
+        # server
+        mr = project.mergerequests.get(mr.iid)
         if ("Ready" in mr.labels) or ("Pending" not in mr.labels):
             make_pending(mr)
 
         _log.msg("Updated MR due to missing Milestone")
     else:
+        own_notes = [n for n in mr.notes.list() if n.author["id"] == user_id]
+        if own_notes:
+            # We keep the first note, but update it
+            note = own_notes.pop()
+            add_own_emoji(note, user_id=user_id, emoji="thumbsup")
+            if note.body != ok_note:
+                note.body = ok_note
+                note.save()
+        # Delete any extra notes
+        for note in own_notes:
+            _log.msg("Deleting extra note", note_id=note.id, note_body=note.body)
+            note.delete()
+
         remove_own_emoji(mr, user_id=user_id, emoji="house_abandoned")
         add_own_emoji(mr, user_id=user_id, emoji="house")
         _log.msg("Removing ugly emoji due to having Milestone")
@@ -201,9 +225,17 @@ def mr_nag():
         pass
 
     if not mrs:
+        # We don't have a MR id, so we have to find one from our commit id.
         commit_id = get_commit_sha()
         commit = project.commits.get(commit_id)
-        mrs = commit.merge_requests()
+
+        # unlike project.merge_requests() this returns a list of dicts
+        all_mrs = commit.merge_requests()
+        # Reduce to "open"
+        open_mrs = (m for m in all_mrs if "open" in m["state"])
+        # Reduce to mrs on our project
+        this_mrs = (m["iid"] for m in open_mrs if m["project_id"] == project.id)
+        mrs = [project.mergerequests.get(mr_id) for mr_id in this_mrs]
 
     for mr in mrs:
         nag_this_mr(gl, mr)
