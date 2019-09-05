@@ -329,7 +329,7 @@ def milestone_fixup(*args):
 
 
 def release_tag(*args):
-    """Merge request nagger. meant to be run in a CI job"""
+    """Run from "only: -tags"  to turn tags into releases. WIP WIP WIP"""
     assert not args
     global _log
     proj_id = get_project_id()
