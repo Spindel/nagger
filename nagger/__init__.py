@@ -3,7 +3,6 @@
 import os
 import sys
 import structlog
-import gitlab
 
 _log = structlog.get_logger()
 
@@ -29,12 +28,12 @@ def get_api_url():
 
 def get_api_token():
     """Gets a api token from CI variables"""
-    val = os.environ.get("CI_JOB_TOKEN")
-    assert val, "Environment variable: CI_JOB_TOKEN missing"
-    return val
+    val = os.environ.get("NAGGUS_KEY")
+    assert val, "Environment variable: NAGGUS_KEY is missing"
+    return val.strip()
 
 
-def get_mr_iid():
+def get_mr_iid(api):
     """Gets a merge request id from CI variables"""
     global _log
     val = os.environ.get("CI_MERGE_REQUEST_IID")
@@ -48,6 +47,7 @@ def get_project_id():
     global _log
     val = os.environ.get("CI_PROJECT_ID")
     assert val, "Environment variable: CI_PROJECT_ID missing"
+    val = int(val)
     _log = _log.bind(project_id=val)
     return val
 
@@ -61,12 +61,23 @@ def get_commit_tag():
     return val
 
 
+def get_commit_sha():
+    """Gets commit tag"""
+    global _log
+    val = os.environ.get("CI_COMMIT_SHA")
+    assert val, "Environment variable: CI_COMMIT_SHA missing"
+    _log = _log.bind(CI_COMMIT_SHA=val)
+    return val
+
+
 def get_gitlab():
     """Create a gitlab instance from CI variables"""
+    from gitlab import Gitlab
+
     global _log
     api_token = get_api_token()
     api_url = get_api_url()
-    gl = gitlab.Gitlab(api_url, api_token)
+    gl = Gitlab(api_url, api_token)
     # Authenticate so we can get our .user. data
     gl.auth()
     _log = _log.bind(user=gl.user.username)
@@ -91,57 +102,143 @@ def add_own_emoji(thing, user_id, emoji="house"):
         thing.awardemojis.create({"name": emoji})
 
 
-def print_ci():
+def debug_variables():
+    """Print all CI related variables"""
     ci_keys = (k for k in os.environ if k.startswith("CI"))
-    for key in ci_keys:
+    for key in sorted(ci_keys):
         val = os.environ[key]
         print(f"{key}={val}")
+
+
+def make_pending(thing):
+    """Make sure thing is not Ready, but is Pending"""
+    global _log
+    labels = set(thing.labels)
+    try:
+        labels.remove("Ready")
+        _log = _log.bind(removed_label="Ready")
+    except KeyError:
+        pass
+    labels.add("Pending")
+    _log = _log.bind(added_label="Pending")
+    try:
+        thing.labels = list(labels)
+        thing.save()
+    except Exception:
+        _log.exception("Error saving labels, permission error?")
+
+
+def make_wip(thing):
+    """Mark thing as WIP"""
+    global _log
+    if thing.work_in_progress:
+        return
+
+    old_title = thing.title
+    thing.title = f"WIP: {old_title}"
+    try:
+        thing.save()
+        _log = _log.bind(title=thing.title)
+    except Exception:
+        _log.exception("Error saving title, permission error?")
+
+
+def nag_this_mr(api, mr):
+    """Nag on a single mr"""
+    global _log
+    user_id = api.user.id
+    project = api.projects.get(mr.project_id)
+
+    author = mr.author["username"]
+    _log = _log.bind(mr_title=mr.title, author=author, nagger_user_id=user_id)
+
+    bad_note = (
+        f"Hello @{author}.\n\n"
+        "You forgot to add a Milestone to this Merge Request.\n\n"
+        "I will try to mark it as `Pending` and `WIP` "
+        "so you do not forget to add a Milestone.\n\n"
+        "Please, make sure the title is descriptive."
+    )
+    ok_note = (
+        f"Hello @{author}.\n\n"
+        "~~You forgot to add a Milestone to this Merge Request.~~\n\n"
+        "~~I will try to mark it as `Pending` and `WIP` "
+        "so you do not forget to add a Milestone.~~\n\n"
+        "Please, make sure the title is descriptive."
+    )
+
+    if mr.milestone is None:
+        _log = _log.bind(missing_milestone=True, commented=False)
+        remove_own_emoji(mr, user_id=user_id, emoji="house")
+        add_own_emoji(mr, user_id=user_id, emoji="house_abandoned")
+        own_notes = [n for n in mr.notes.list() if n.author["id"] == user_id]
+        if not own_notes:
+            mr.notes.create({"body": bad_note})
+            _log = _log.bind(commented=True)
+
+        # in case we have an old modification (save failed) we re-load from
+        # server
+        mr = project.mergerequests.get(mr.iid)
+        if not mr.work_in_progress:
+            make_wip(mr)
+
+        # in case we have an old modification (save failed) we re-load from
+        # server
+        mr = project.mergerequests.get(mr.iid)
+        if ("Ready" in mr.labels) or ("Pending" not in mr.labels):
+            make_pending(mr)
+
+        _log.msg("Updated MR due to missing Milestone")
+    else:
+        own_notes = [n for n in mr.notes.list() if n.author["id"] == user_id]
+        if own_notes:
+            # We keep the first note, but update it
+            note = own_notes.pop()
+            add_own_emoji(note, user_id=user_id, emoji="thumbsup")
+            if note.body != ok_note:
+                note.body = ok_note
+                note.save()
+        # Delete any extra notes
+        for note in own_notes:
+            _log.msg("Deleting extra note", note_id=note.id, note_body=note.body)
+            note.delete()
+
+        remove_own_emoji(mr, user_id=user_id, emoji="house_abandoned")
+        add_own_emoji(mr, user_id=user_id, emoji="house")
+        _log.msg("Removing ugly emoji due to having Milestone")
 
 
 def mr_nag():
     """Merge request nagger. meant to be run in a CI job"""
     global _log
-    proj_id = get_project_id()
-    mr_iid = get_mr_iid()
-
     gl = get_gitlab()
+
+    proj_id = get_project_id()
     project = gl.projects.get(proj_id)
     _log = _log.bind(project=project.path_with_namespace)
 
-    mr = project.mergerequests.get(mr_iid)
-    author = mr.author["username"]
-    _log = _log.bind(mr_description=mr.description, author=author)
+    mrs = []
+    try:
+        mr_iid = get_mr_iid()
+        mrs = [project.mergerequests.get(mr_iid)]
+    except Exception:
+        pass
 
-    note = (
-        f"Hello @{author}.  "
-        "You forgot to add a Milestone to this Merge Request.  \n"
-        "I have taken the liberty to mark it as `Pending` and `WIP`"
-        "so you do not forget to add a Milestone."
-        "\n"
-        "Please, make sure the title is descriptive."
-    )
+    if not mrs:
+        # We don't have a MR id, so we have to find one from our commit id.
+        commit_id = get_commit_sha()
+        commit = project.commits.get(commit_id)
 
-    _log = _log.bind(title=mr.title)
-    if mr.milestone is None:
-        old_title = mr.title
-        labels = set(mr.labels)
-        if "Ready" in labels:
-            labels.remove("Ready")
-        labels.add("Pending")
-        mr.labels = list(labels)
-        if not mr.title.startswith("WIP:"):
-            mr.title = f"WIP: {old_title}"
+        # unlike project.merge_requests() this returns a list of dicts
+        all_mrs = commit.merge_requests()
+        # Reduce to "open"
+        open_mrs = (m for m in all_mrs if "open" in m["state"])
+        # Reduce to mrs on our project
+        this_mrs = (m["iid"] for m in open_mrs if m["project_id"] == project.id)
+        mrs = [project.mergerequests.get(mr_id) for mr_id in this_mrs]
 
-        remove_own_emoji(mr, user_id=gl.user.id, emoji="house")
-        add_own_emoji(mr, user_id=gl.user.id, emoji="house_abandoned")
-
-        _log.msg("Updated MR because missing Milestone")
-        mr.save()
-        mr.notes.create({"body": note})
-    else:
-        _log.msg("Removing ugly emoji due to having Milestone")
-        remove_own_emoji(mr, user_id=gl.user.id, emoji="house_abandoned")
-        add_own_emoji(mr, user_id=gl.user.id, emoji="house")
+    for mr in mrs:
+        nag_this_mr(gl, mr)
 
 
 def release_tag():
@@ -195,7 +292,7 @@ def release_tag():
     )
 
 
-COMMANDS = {"nag": mr_nag, "release": release_tag}
+COMMANDS = {"nag": mr_nag, "release": release_tag, "debug_variables": debug_variables}
 
 
 def helptext():
@@ -203,7 +300,9 @@ def helptext():
     command = sys.argv[0]
     print(f"Usage: {command} [subcommand]")
     for k in COMMANDS:
-        print(k)
+        print("\t", k)
+    print("\n")
+    print("We expect NAGGUS_KEY  environment to contain an API key")
 
 
 def get_cmd():
@@ -221,7 +320,6 @@ def get_cmd():
 
 def main():
     """Main command"""
-    print_ci()
     try:
         command = get_cmd()
     except CmdError:
