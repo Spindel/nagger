@@ -98,6 +98,39 @@ def print_ci():
         print(f"{key}={val}")
 
 
+def make_pending(thing):
+    """Make sure thing is not Ready, but is Pending"""
+    global _log
+    labels = set(thing.labels)
+    try:
+        labels.remove("Ready")
+        _log = _log.bind(removed_label="Ready")
+    except KeyError:
+        pass
+    labels.add("Pending")
+    _log = _log.bind(added_label="Pending")
+    try:
+        thing.labels = list(labels)
+        thing.save()
+    except Exception:
+        _log.exception("Error saving labels, permission error?")
+
+
+def make_wip(thing):
+    """Mark thing as WIP"""
+    global _log
+    if thing.work_in_progress:
+        return
+
+    old_title = thing.title
+    thing.title = f"WIP: {old_title}"
+    try:
+        thing.save()
+        _log = _log.bind(title=thing.title)
+    except Exception:
+        _log.exception("Error saving title, permission error?")
+
+
 def mr_nag():
     """Merge request nagger. meant to be run in a CI job"""
     global _log
@@ -130,26 +163,12 @@ def mr_nag():
         _log = _log.bind(commented=True, missing_milestone=True)
 
         mr = project.mergerequests.get(mr_iid)
-        if not mr.title.startswith("WIP:"):
-            old_title = mr.title
-            mr.title = f"WIP: {old_title}"
-            try:
-                mr.save()
-                _log = _log.bind(title=mr.title)
-            except Exception:
-                _log.exception("Error saving title, permission error?")
+        if not mr.work_in_progress:
+            make_wip(mr)
 
-        mr = project.mergerequests.get(mr_iid)
-        labels = set(mr.labels)
-        if ("Ready" in labels) or ("Pending" not in labels):
-            labels.remove("Ready")
-            labels.add("Pending")
-            mr.labels = list(labels)
-            try:
-                mr.save()
-                _log = _log.bind(removed_label="Ready", added_label="Pending")
-            except Exception:
-                _log.exception("Error saving labels, permission error?")
+        if ("Ready" in mr.labels) or ("Pending" not in mr.labels):
+            make_pending(mr)
+
         _log.msg("Updated MR due to missing Milestone")
     else:
         remove_own_emoji(mr, user_id=gl.user.id, emoji="house_abandoned")
