@@ -34,7 +34,7 @@ def get_api_token():
     return val.strip()
 
 
-def get_mr_iid():
+def get_mr_iid(api):
     """Gets a merge request id from CI variables"""
     global _log
     val = os.environ.get("CI_MERGE_REQUEST_IID")
@@ -58,6 +58,15 @@ def get_commit_tag():
     val = os.environ.get("CI_COMMIT_TAG")
     assert val, "Environment variable: CI_COMMIT_TAG missing"
     _log = _log.bind(tag=val)
+    return val
+
+
+def get_commit_sha():
+    """Gets commit tag"""
+    global _log
+    val = os.environ.get("CI_COMMIT_SHA")
+    assert val, "Environment variable: CI_COMMIT_SHA missing"
+    _log = _log.bind(CI_COMMIT_SHA=val)
     return val
 
 
@@ -132,38 +141,36 @@ def make_wip(thing):
         _log.exception("Error saving title, permission error?")
 
 
-def mr_nag():
-    """Merge request nagger. meant to be run in a CI job"""
+def nag_this_mr(api, mr):
+    """Nag on a single mr"""
     global _log
-    proj_id = get_project_id()
-    mr_iid = get_mr_iid()
+    user_id = api.user.id
 
-    gl = get_gitlab()
-    project = gl.projects.get(proj_id)
-    _log = _log.bind(project=project.path_with_namespace)
+    project = api.projects.get(mr["project_id"])
 
-    mr = project.mergerequests.get(mr_iid)
     author = mr.author["username"]
-    _log = _log.bind(mr_description=mr.description, author=author)
+    _log = _log.bind(
+        mr_description=mr.description, author=author, nagger_user_id=user_id
+    )
 
     note = (
         f"Hello @{author}.  "
         "You forgot to add a Milestone to this Merge Request.  \n"
-        "I have taken the liberty to mark it as `Pending` and `WIP`"
+        "I will try to mark it as `Pending` and `WIP` "
         "so you do not forget to add a Milestone."
         "\n"
         "Please, make sure the title is descriptive."
     )
-
     _log = _log.bind(title=mr.title)
 
     if mr.milestone is None:
-        remove_own_emoji(mr, user_id=gl.user.id, emoji="house")
-        add_own_emoji(mr, user_id=gl.user.id, emoji="house_abandoned")
+        remove_own_emoji(mr, user_id=user_id, emoji="house")
+        add_own_emoji(mr, user_id=user_id, emoji="house_abandoned")
         mr.notes.create({"body": note})
+
         _log = _log.bind(commented=True, missing_milestone=True)
 
-        mr = project.mergerequests.get(mr_iid)
+        mr = project.mergerequests.get(mr.iid)
         if not mr.work_in_progress:
             make_wip(mr)
 
@@ -172,9 +179,34 @@ def mr_nag():
 
         _log.msg("Updated MR due to missing Milestone")
     else:
-        remove_own_emoji(mr, user_id=gl.user.id, emoji="house_abandoned")
-        add_own_emoji(mr, user_id=gl.user.id, emoji="house")
+        remove_own_emoji(mr, user_id=user_id, emoji="house_abandoned")
+        add_own_emoji(mr, user_id=user_id, emoji="house")
         _log.msg("Removing ugly emoji due to having Milestone")
+
+
+def mr_nag():
+    """Merge request nagger. meant to be run in a CI job"""
+    global _log
+    gl = get_gitlab()
+
+    proj_id = get_project_id()
+    project = gl.projects.get(proj_id)
+    _log = _log.bind(project=project.path_with_namespace)
+
+    mrs = []
+    try:
+        mr_iid = get_mr_iid()
+        mrs = [project.mergerequests.get(mr_iid)]
+    except Exception:
+        pass
+
+    if not mrs:
+        commit_id = get_commit_sha()
+        commit = project.commits.get(commit_id)
+        mrs = commit.merge_requests()
+
+    for mr in mrs:
+        nag_this_mr(gl, mr)
 
 
 def release_tag():
