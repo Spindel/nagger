@@ -3,7 +3,6 @@
 import os
 import sys
 import structlog
-import gitlab
 
 _log = structlog.get_logger()
 
@@ -72,10 +71,11 @@ def get_commit_sha():
 
 def get_gitlab():
     """Create a gitlab instance from CI variables"""
+    from gitlab import Gitlab
     global _log
     api_token = get_api_token()
     api_url = get_api_url()
-    gl = gitlab.Gitlab(api_url, api_token)
+    gl = Gitlab(api_url, api_token)
     # Authenticate so we can get our .user. data
     gl.auth()
     _log = _log.bind(user=gl.user.username)
