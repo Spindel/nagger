@@ -4,7 +4,16 @@ import os
 import sys
 import structlog
 
-_log = structlog.get_logger()
+_log = None
+
+GROUP_NAME = "ModioAB"
+IGNORE_MR_PROJECTS = ["ModioAB/sysadmin", "ModioAB/clientconfig"]
+
+
+def setup_logging():
+    """Global state. Eat it"""
+    global _log
+    _log = structlog.get_logger()
 
 
 class CmdError(Exception):
@@ -247,8 +256,81 @@ def mr_nag():
         nag_this_mr(gl, mr)
 
 
-def release_tag():
-    """Merge request nagger. meant to be run in a CI job"""
+def milestone_changelog(*args):
+    """Stomps all over a milestone"""
+    global _log
+    milestone_name = " ".join(args)
+    assert milestone_name, "Parameter missing: Milestone name"
+    _log = _log.bind(milestone_name=milestone_name, group_name=GROUP_NAME)
+
+    gl = get_gitlab()
+
+    group = gl.groups.get(GROUP_NAME)
+    ms = group.milestones.list()
+    our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
+
+    milestone = next(our_ms)
+    mrs = milestone.merge_requests()
+
+    changelog = {}
+    merged_mr = (m for m in mrs if m.state == "merged")
+    for mr in merged_mr:
+        proj_id = mr.project_id
+        title = mr.title
+        items = changelog.setdefault(proj_id, [])
+        items.append(title)
+
+    result = ""
+    for proj_id, changes in changelog.items():
+        proj = gl.projects.get(proj_id)
+        header = f"## {proj.path_with_namespace}"
+        rows = (f"* {row}" for row in changes)
+        result += header + "\n\n" + "\n".join(rows) + "\n\n"
+    print(result)
+
+
+def milestone_fixup(*args):
+    """Stomps all over a milestone"""
+    from datetime import timezone
+    from dateutil.parser import isoparse
+
+    global _log
+    milestone_name = " ".join(args)
+    assert milestone_name, "Parameter missing: Milestone name"
+    _log = _log.bind(milestone_name=milestone_name)
+    gl = get_gitlab()
+
+    group = gl.groups.get(GROUP_NAME)
+    ms = group.milestones.list()
+    our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
+
+    milestone = next(our_ms)
+    assert milestone.start_date, "Milestone needs to have a Start date set"
+    start_date = isoparse(milestone.start_date)
+    # It's just a date, but other timestamps are datetimes, so we make it utc
+    start_date = start_date.replace(tzinfo=timezone.utc)
+
+    # Grab all merge requests
+    mrs = group.mergerequests.list(state="merged")
+    projects = {m.project_id for m in mrs}
+    # Maybe use dateutil.parse?
+
+    for proj_id in projects:
+        project = gl.projects.get(proj_id)
+        if project.path_with_namespace in IGNORE_MR_PROJECTS:
+            continue
+
+        mrs = project.mergerequests.list(state="merged", order_by="created_at")
+        mrs = (m for m in mrs if not m.milestone)
+        for mr in mrs:
+            merged_at = isoparse(mr.merged_at)
+            if merged_at > start_date:
+                print(mr.web_url)
+
+
+def release_tag(*args):
+    """Run from "only: -tags"  to turn tags into releases. WIP WIP WIP"""
+    assert not args
     global _log
     proj_id = get_project_id()
 
@@ -298,7 +380,13 @@ def release_tag():
     )
 
 
-COMMANDS = {"nag": mr_nag, "release": release_tag, "debug_variables": debug_variables}
+COMMANDS = {
+    "nag": mr_nag,
+    "release": release_tag,
+    "debug_variables": debug_variables,
+    "changelog": milestone_changelog,
+    "fixup": milestone_fixup,
+}
 
 
 def helptext():
@@ -314,7 +402,7 @@ def helptext():
 def get_cmd():
     """Returns a function callable from sys.argv"""
     global _log
-    if len(sys.argv) != 2:
+    if len(sys.argv) < 2:
         raise CmdError
 
     try:
@@ -322,20 +410,23 @@ def get_cmd():
         command = COMMANDS[cmd]
     except (KeyError, IndexError):
         raise CmdError
+    args = sys.argv[2:]
     _log.bind(command=cmd)
-    return command
+    return command, args
 
 
 def main():
     """Main command"""
+    setup_logging()
     global _log
+
     try:
-        command = get_cmd()
+        command, args = get_cmd()
     except CmdError:
         helptext()
         sys.exit(1)
     try:
-        command()
+        command(*args)
     except Exception:
         _log.exception("Error in command")
         sys.exit(1)
