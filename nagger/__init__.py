@@ -1,13 +1,38 @@
 #!/usr/bin/env python3
 """Simple CI helper to remind people to set milestones"""
 import os
+import io
 import sys
+
 import structlog
+
+from enum import IntEnum
+from dataclasses import dataclass
 
 _log = None
 
 GROUP_NAME = "ModioAB"
 IGNORE_MR_PROJECTS = ["ModioAB/sysadmin", "ModioAB/clientconfig"]
+
+
+class Kind(IntEnum):
+    Feature = 0
+    Bug = 1
+    misc = 9
+
+
+class Exposed(IntEnum):
+    External = 0
+    Internal = 1
+
+
+@dataclass(order=True)
+class ChangeLog:
+    """Tracking a changelog line"""
+
+    exposed: Exposed
+    kind: Kind
+    text: str
 
 
 def setup_logging():
@@ -256,6 +281,32 @@ def mr_nag():
         nag_this_mr(gl, mr)
 
 
+def present_kind(val: Kind):
+    if val == Kind.Feature:
+        return "New features"
+    if val == Kind.Bug:
+        return "Bug fixes"
+    if val == Kind.misc:
+        return "Misc changes"
+    return "XXX: "
+
+
+def get_kind(mr):
+    """Returns a kind based on the labels"""
+    if "Feature" in mr.labels:
+        return Kind.Feature
+    if "Bug" in mr.labels:
+        return Kind.Bug
+    return Kind.misc
+
+
+def get_exposed(mr):
+    """Returns the exposed state of a merge requests"""
+    if "Internal" in mr.labels:
+        return Exposed.Internal
+    return Exposed.External
+
+
 def milestone_changelog(*args):
     """Stomps all over a milestone"""
     global _log
@@ -274,19 +325,67 @@ def milestone_changelog(*args):
 
     changelog = {}
     merged_mr = (m for m in mrs if m.state == "merged")
-    for mr in merged_mr:
-        proj_id = mr.project_id
-        title = mr.title
-        items = changelog.setdefault(proj_id, [])
-        items.append(title)
 
-    result = ""
+    for mr in merged_mr:
+        kind = get_kind(mr)
+        exposed = get_exposed(mr)
+        c = ChangeLog(exposed, kind, mr.title)
+        items = changelog.setdefault(mr.project_id, [])
+        items.append(c)
+    del kind, c, mr
+
+    external = {}
+    internal = {}
+
     for proj_id, changes in changelog.items():
+        changes = sorted(changes)
         proj = gl.projects.get(proj_id)
-        header = f"## {proj.path_with_namespace}"
-        rows = (f"* {row}" for row in changes)
-        result += header + "\n\n" + "\n".join(rows) + "\n\n"
-    print(result)
+        proj_name = proj.path_with_namespace
+        external[proj_name] = [l for l in changes if l.exposed == Exposed.External]
+        internal[proj_name] = [l for l in changes]
+
+    # Data structure is now:
+    #  external["ModioAB/afase"] = [change, change....]
+    #  internal["ModioAB/afase"] = [change, change....]
+
+    # External changes are visually different from internal.
+    result = io.StringIO()
+    for proj_name, changes in external.items():
+        if not changes:
+            continue
+        header = f"## {proj_name}\n"
+        result.write(header + "\n")
+
+        for kind in Kind:
+            subheader = f"{present_kind(kind)}: \n"
+            lines = (l for l in changes if l.kind == kind)
+            rows = [f"* {row.text}\n" for row in lines]
+            if rows:
+                result.write(subheader)
+                result.writelines(rows)
+                result.write("\n")
+
+        result.write("\n\n")
+
+    # Done, print it out (or save, or something)
+    print("--8<--" * 10 + "\n")
+    print(result.getvalue())
+    result.close()
+    print("-->8--" * 10 + "\n")
+
+    # Internal changes are more concise
+    result = io.StringIO()
+    for proj_name, changes in internal.items():
+        if not changes:
+            continue
+        result.write(f"## {proj_name}\n\n")
+        for c in changes:
+            result.write(f"{c.kind.name}: {c.text}\n")
+        result.write("\n")
+    # End internal changes
+
+    print("# Internal only changes\n")
+    print(result.getvalue())
 
 
 def milestone_fixup(*args):
