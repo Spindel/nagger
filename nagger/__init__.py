@@ -37,7 +37,23 @@ class ChangeLog:
 
 def setup_logging():
     """Global state. Eat it"""
+    import logging
+
+    logging.basicConfig()
     global _log
+
+    structlog.configure(
+        processors=[
+            structlog.stdlib.filter_by_level,
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.dev.ConsoleRenderer(),
+        ],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
     _log = structlog.get_logger()
 
 
