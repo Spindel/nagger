@@ -7,6 +7,7 @@ import structlog
 _log = None
 
 GROUP_NAME = "ModioAB"
+DEFAULT_API_URL = "https://gitlab.com/"
 IGNORE_MR_PROJECTS = ["ModioAB/sysadmin", "ModioAB/clientconfig"]
 
 
@@ -25,8 +26,7 @@ def get_api_url():
     from urllib.parse import urlparse
 
     global _log
-
-    val = os.environ.get("CI_API_V4_URL")
+    val = os.environ.get("CI_API_V4_URL", DEFAULT_API_URL)
     assert val, "Environment variable: CI_API_V4_URL missing"
     # CI_API_.. is a full path, we just need the scheme+domain.
     parsed_uri = urlparse(val)
