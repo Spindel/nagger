@@ -562,8 +562,8 @@ def milestone_release(*args):
         _log = _log.bind(**tag_prefs)
         try:
             tag = project.tags.create(tag_prefs)
-            _log.info("Created tag")
-            print(f"{project.path_with_namespace}:  tag: {tag_name}")
+            _log.info("Created tag", commit=tag.id)
+            print(f"{project.path_with_namespace}:  tag: {tag_name} commit: {tag.id}")
         except Exception:
             _log.exception("Error creating tag.")
 
