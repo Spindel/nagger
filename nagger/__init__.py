@@ -49,9 +49,7 @@ def setup_logging():
     import sys
 
     global _log
-    structlog.configure(
-        logger_factory=structlog.PrintLoggerFactory(sys.stderr)
-    )
+    structlog.configure(logger_factory=structlog.PrintLoggerFactory(sys.stderr))
     _log = structlog.get_logger()
     _log.debug("Logging, debug, initialized")
     _log.msg("log.msg initialized")
