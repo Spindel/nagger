@@ -401,7 +401,7 @@ def milestone_changelog(*args):
             continue
         result.write(f"## {proj_name}\n\n")
         for c in changes:
-            result.write(f"{c.kind.name}: {c.text}\n")
+            result.write(f"* {c.kind.name}: {c.text}\n")
         result.write("\n")
     # End internal changes
 
