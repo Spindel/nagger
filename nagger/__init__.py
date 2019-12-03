@@ -30,9 +30,10 @@ class Exposed(IntEnum):
 class ChangeLog:
     """Tracking a changelog line"""
 
-    exposed: Exposed
     kind: Kind
+    exposed: Exposed
     text: str
+    slug: str
 
 
 def setup_logging():
@@ -335,26 +336,27 @@ def milestone_changelog(*args):
     milestone = get_milestone(gl, milestone_name)
     mrs = milestone.merge_requests()
 
-    changelog = {}
-    merged_mr = (m for m in mrs if m.state == "merged")
+    # mapping of project_id => project object
+    projects = {}
 
+    # mapping of project_id => [ChangeLog, ChangeLog, ...]
+    changes = {}
+    merged_mr = (m for m in mrs if m.state == "merged")
     for mr in merged_mr:
-        kind = get_kind(mr)
-        exposed = get_exposed(mr)
-        c = ChangeLog(exposed, kind, mr.title)
-        items = changelog.setdefault(mr.project_id, [])
-        items.append(c)
-    del kind, c, mr
+        if mr.project_id not in projects:
+            _log.info("Looking up", project_id=mr.project_id)
+            projects[mr.project_id] = gl.projects.get(mr.project_id)
+        changes.setdefault(mr.project_id, [])
+        changes[mr.project_id].append(mr)
 
     external = {}
     internal = {}
-
-    for proj_id, changes in changelog.items():
-        changes = sorted(changes)
-        proj = gl.projects.get(proj_id)
-        proj_name = proj.path_with_namespace
-        external[proj_name] = [l for l in changes if l.exposed == Exposed.External]
-        internal[proj_name] = [l for l in changes]
+    for project in projects.values():
+        changelog = make_changelog(changes[project.id])
+        proj_name = project.path_with_namespace
+        external[proj_name] = [l for l in changelog if l.exposed == Exposed.External]
+        internal[proj_name] = [l for l in changelog]
+    del projects, changes
 
     # Data structure is now:
     #  external["ModioAB/afase"] = [change, change....]
@@ -442,6 +444,20 @@ def get_milestone(gl, milestone_name):
     our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
     milestone = next(our_ms)
     return milestone
+
+
+def make_changelog(merge_requests):
+    """Returns a list of ChangeLog items"""
+    result = []
+    for mr in merge_requests:
+        kind = get_kind(mr)
+        exposed = get_exposed(mr)
+        line = ChangeLog(kind, exposed, mr.title, f"!{mr.iid}")
+        result.append(line)
+    if not result:
+        line = ChangeLog(Kind.misc, Exposed.External, "No major changes", "")
+        result.append(line)
+    return sorted(result)
 
 
 def release_tag(*args):
