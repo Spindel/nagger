@@ -331,6 +331,20 @@ def get_exposed(mr):
     return Exposed.External
 
 
+def projects_from_mrs(gl, merge_requests):
+    """Look up projects from merge requests"""
+    global _log
+    projects = {}
+
+    for mr in merge_requests:
+        if mr.project_id in projects:
+            continue
+        _log.info("Looking up", project_id=mr.project_id)
+        project = gl.projects.get(mr.project_id)
+        projects[ml.project_id] = project
+    return projects
+
+
 def milestone_changelog(*args):
     """Stomps all over a milestone"""
     global _log
@@ -344,15 +358,12 @@ def milestone_changelog(*args):
     mrs = milestone.merge_requests()
 
     # mapping of project_id => project object
-    projects = {}
+    projects = projects_from_mrs(gl, mrs)
 
     # mapping of project_id => [ChangeLog, ChangeLog, ...]
     changes = {}
     merged_mr = (m for m in mrs if m.state == "merged")
     for mr in merged_mr:
-        if mr.project_id not in projects:
-            _log.info("Looking up", project_id=mr.project_id)
-            projects[mr.project_id] = gl.projects.get(mr.project_id)
         changes.setdefault(mr.project_id, [])
         changes[mr.project_id].append(mr)
 
@@ -429,11 +440,12 @@ def milestone_fixup(*args):
 
     # Grab all merge requests
     mrs = group.mergerequests.list(state="merged")
-    projects = {m.project_id for m in mrs}
+
+    # mapping of project_id => project object
+    projects = projects_from_mrs(gl, mrs)
     # Maybe use dateutil.parse?
 
-    for proj_id in projects:
-        project = gl.projects.get(proj_id)
+    for project in projects.values():
         if project.path_with_namespace in IGNORE_MR_PROJECTS:
             continue
 
@@ -482,11 +494,10 @@ def milestone_release(*args):
     milestone = get_milestone(gl, milestone_name)
     mrs = milestone.merge_requests()
 
-    # Fill a dict of projects
-    projects = {}
+    projects = projects_from_mrs(gl, mrs)
+    # Fill up with our "ALWAYS CREATE PROJECT"
     for name in RELEASE_PROJECTS:
         _log.info("Looking up", project=name)
-
         proj = gl.projects.get(name)
         projects[proj.id] = proj
     del name, proj
@@ -495,9 +506,6 @@ def milestone_release(*args):
     merged_mr = (m for m in mrs if m.state == "merged")
 
     for mr in merged_mr:
-        if mr.project_id not in projects:
-            _log.info("Looking up", project_id=mr.project_id)
-            projects[mr.project_id] = gl.projects.get(mr.project_id)
         changes.setdefault(mr.project_id, [])
         changes[mr.project_id].append(mr)
     del mr, merged_mr
@@ -528,6 +536,8 @@ def milestone_release(*args):
                 fobj.write(txt)
 
     for project in projects.values():
+        if project.path_with_namespace in IGNORE_MR_PROJECTS:
+            continue
         _log = _log.bind(project=project.path_with_namespace, project_id=project.id)
         release = io.StringIO()
         tag = io.StringIO()
