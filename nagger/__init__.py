@@ -533,6 +533,8 @@ def milestone_release(*args):
         tag = io.StringIO()
         tag.write(f"Release {tag_name}\n")
         release.write(f"Release {tag_name}\n")
+        release.write("\n")
+        release.write(f"Milestone: {milestone.web_url} \n\n")
 
         changelog = make_changelog(changes[project.id])
 
@@ -560,7 +562,10 @@ def milestone_release(*args):
             "tag_name": tag_name,
             "name": tag_name,
             "description": release_message,
-            "milestones": [milestone_name],
+            # We cannot link to Group Milestones by name, thus we pass an empty
+            # milestone in here.  It should be the text representation of a
+            # milestone name according to the documentation that is wrong.
+            "milestones": [],
         }
         _log = _log.bind(**release_prefs)
         try:
