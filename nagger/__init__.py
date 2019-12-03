@@ -45,7 +45,6 @@ class ChangeLog:
 
 def setup_logging():
     """Global state. Eat it"""
-    import logging
     import sys
 
     global _log
@@ -500,7 +499,7 @@ def milestone_release(*args):
     for mr in merged_mrs:
         changes.setdefault(mr.project_id, [])
         changes[mr.project_id].append(mr)
-    del mr, merged_mr
+    del mr, merged_mrs
 
     def make_text(incoming, fobj, external=True):
         """Creates a text representation of a changelog"""
