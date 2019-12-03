@@ -341,7 +341,7 @@ def projects_from_mrs(gl, merge_requests):
             continue
         _log.info("Looking up", project_id=mr.project_id)
         project = gl.projects.get(mr.project_id)
-        projects[ml.project_id] = project
+        projects[mr.project_id] = project
     return projects
 
 
