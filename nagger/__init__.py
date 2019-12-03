@@ -348,13 +348,13 @@ def milestone_changelog(*args):
 
     milestone = get_milestone(gl, milestone_name)
     mrs = milestone.merge_requests()
+    merged_mr = [m for m in mrs if m.state == "merged"]
 
     # mapping of project_id => project object
-    projects = projects_from_mrs(gl, mrs)
-
+    projects = projects_from_mrs(gl, merged_mr)
     # mapping of project_id => [ChangeLog, ChangeLog, ...]
     changes = {}
-    merged_mr = (m for m in mrs if m.state == "merged")
+
     for mr in merged_mr:
         changes.setdefault(mr.project_id, [])
         changes[mr.project_id].append(mr)
@@ -362,7 +362,10 @@ def milestone_changelog(*args):
     external = {}
     internal = {}
     for project in projects.values():
-        changelog = make_changelog(changes[project.id])
+        if project.id not in changes:
+            continue
+        merge_requests = changes[project.id]
+        changelog = make_changelog(merge_requests)
         proj_name = project.path_with_namespace
         external[proj_name] = [l for l in changelog if l.exposed == Exposed.External]
         internal[proj_name] = [l for l in changelog]
@@ -485,8 +488,9 @@ def milestone_release(*args):
     gl = get_gitlab()
     milestone = get_milestone(gl, milestone_name)
     mrs = milestone.merge_requests()
+    merged_mrs = [m for m in mrs if m.state == "merged"]
 
-    projects = projects_from_mrs(gl, mrs)
+    projects = projects_from_mrs(gl, merged_mrs)
     # Fill up with our "ALWAYS CREATE PROJECT"
     for name in RELEASE_PROJECTS:
         _log.info("Looking up", project=name)
@@ -495,9 +499,7 @@ def milestone_release(*args):
     del name, proj
 
     changes = {}
-    merged_mr = (m for m in mrs if m.state == "merged")
-
-    for mr in merged_mr:
+    for mr in merged_mrs:
         changes.setdefault(mr.project_id, [])
         changes[mr.project_id].append(mr)
     del mr, merged_mr
