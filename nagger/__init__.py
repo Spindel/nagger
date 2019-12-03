@@ -13,6 +13,13 @@ _log = None
 
 GROUP_NAME = "ModioAB"
 IGNORE_MR_PROJECTS = ["ModioAB/sysadmin", "ModioAB/clientconfig"]
+RELEASE_PROJECTS = [
+    "ModioAB/afase",
+    "ModioAB/mytemp-backend",
+    "ModioAB/modio-api",
+    "ModioAB/zabbix-containers",
+    "ModioAB/submit",
+]
 
 
 class Kind(IntEnum):
@@ -460,6 +467,113 @@ def make_changelog(merge_requests):
     return sorted(result)
 
 
+def milestone_release(*args):
+    """Run manually to create a release in all projects"""
+    global _log
+    tag_name = " ".join(args)
+    assert tag_name, "Parameter missing: Tag version , ex 'v3.14.0'"
+    assert tag_name.count(".") >= 2, "Tag should be a full version, v3.14.0"
+    milestone_name = tag_name.rsplit(".", 1)[0]
+    _log = _log.bind(
+        tag_name=tag_name, milestone_name=milestone_name, group_name=GROUP_NAME
+    )
+
+    gl = get_gitlab()
+    milestone = get_milestone(gl, milestone_name)
+    mrs = milestone.merge_requests()
+
+    # Fill a dict of projects
+    projects = {}
+    for name in RELEASE_PROJECTS:
+        _log.info("Looking up", project=name)
+
+        proj = gl.projects.get(name)
+        projects[proj.id] = proj
+    del name, proj
+
+    changes = {}
+    merged_mr = (m for m in mrs if m.state == "merged")
+
+    for mr in merged_mr:
+        if mr.project_id not in projects:
+            _log.info("Looking up", project_id=mr.project_id)
+            projects[mr.project_id] = gl.projects.get(mr.project_id)
+        changes.setdefault(mr.project_id, [])
+        changes[mr.project_id].append(mr)
+    del mr, merged_mr
+
+    def make_text(incoming, fobj, external=True):
+        """Creates a text representation of a changelog"""
+        if external:
+            # Format external facing as markdown text with links to issues
+            our_lines = [l for l in incoming if l.exposed == Exposed.External]
+            fmt = "* [{text}]({url}) \n"
+        else:
+            # Git internal tags just get plain text format issues
+            our_lines = [l for l in incoming]
+            fmt = "* {url}: {text} \n"
+
+        for kind in Kind:
+            lines = [l for l in our_lines if l.kind == kind]
+            if not lines:
+                continue
+            fobj.write("\n")
+            fobj.write(f"## {present_kind(kind)}: \n")
+            for line in lines:
+                if line.slug:
+                    url = f"{project.path_with_namespace}{line.slug}"
+                else:
+                    url = ""
+                txt = fmt.format(text=line.text, url=url)
+                fobj.write(txt)
+
+    for project in projects.values():
+        _log = _log.bind(project=project.path_with_namespace, project_id=project.id)
+        release = io.StringIO()
+        tag = io.StringIO()
+        tag.write(f"Release {tag_name}\n")
+        release.write(f"Release {tag_name}\n")
+
+        changelog = make_changelog(changes[project.id])
+
+        make_text(changelog, tag, external=False)
+        make_text(changelog, release, external=True)
+
+        tag_message = tag.getvalue()
+        release_message = release.getvalue()
+
+        tag.close()
+        release.close()
+        del tag, release
+
+        tag_prefs = {"tag_name": tag_name, "message": tag_message, "ref": "master"}
+        _log = _log.bind(**tag_prefs)
+        try:
+            tag = project.tags.create(tag_prefs)
+            _log.info("Created tag")
+            print(f"{project.path_with_namespace}:  tag: {tag_name}")
+            print(tag)
+        except Exception:
+            _log.exception("Error creating tag.")
+
+        release_prefs = {
+            "tag_name": tag_name,
+            "name": tag_name,
+            "description": release_message,
+            "milestones": [milestone_name],
+        }
+        _log = _log.bind(**release_prefs)
+        try:
+            release = project.releases.create(release_prefs)
+            _log.info("Created release", **release_prefs)
+            print(
+                f"{project.path_with_namespace}:  tag: {tag_name}, release: {tag_name}"
+            )
+            print(release)
+        except Exception:
+            _log.exception("Error creating release.")
+
+
 def release_tag(*args):
     """Run from "only: -tags"  to turn tags into releases. WIP WIP WIP"""
     assert not args
@@ -518,6 +632,7 @@ COMMANDS = {
     "debug_variables": debug_variables,
     "changelog": milestone_changelog,
     "fixup": milestone_fixup,
+    "milestone_release": milestone_release,
 }
 
 
