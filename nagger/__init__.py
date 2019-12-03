@@ -558,12 +558,13 @@ def milestone_release(*args):
         release.close()
         del tag, release
 
+        proj_name = project.path_with_namespace
         tag_prefs = {"tag_name": tag_name, "message": tag_message, "ref": "master"}
         _log = _log.bind(**tag_prefs)
         try:
             tag = project.tags.create(tag_prefs)
             _log.info("Created tag", commit=tag.id)
-            print(f"{project.path_with_namespace}:  tag: {tag_name} commit: {tag.id}")
+            print(f"{proj_name}:  tag: {tag_name} commit: {tag.id}")
         except Exception:
             _log.exception("Error creating tag.")
 
@@ -580,9 +581,7 @@ def milestone_release(*args):
         try:
             release = project.releases.create(release_prefs)
             _log.info("Created release", **release_prefs)
-            print(
-                f"{project.path_with_namespace}:  tag: {tag_name}, release: {tag_name}"
-            )
+            print(f"{proj_name}:  tag: {release.tag_name}, release: {release.name}")
         except Exception:
             _log.exception("Error creating release.")
 
