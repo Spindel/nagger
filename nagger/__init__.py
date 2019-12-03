@@ -332,11 +332,7 @@ def milestone_changelog(*args):
 
     gl = get_gitlab()
 
-    group = gl.groups.get(GROUP_NAME)
-    ms = group.milestones.list()
-    our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
-
-    milestone = next(our_ms)
+    milestone = get_milestone(gl, milestone_name)
     mrs = milestone.merge_requests()
 
     changelog = {}
@@ -414,12 +410,9 @@ def milestone_fixup(*args):
     assert milestone_name, "Parameter missing: Milestone name"
     _log = _log.bind(milestone_name=milestone_name)
     gl = get_gitlab()
-
     group = gl.groups.get(GROUP_NAME)
-    ms = group.milestones.list()
-    our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
+    milestone = get_milestone(gl, milestone_name)
 
-    milestone = next(our_ms)
     assert milestone.start_date, "Milestone needs to have a Start date set"
     start_date = isoparse(milestone.start_date)
     # It's just a date, but other timestamps are datetimes, so we make it utc
@@ -441,6 +434,14 @@ def milestone_fixup(*args):
             merged_at = isoparse(mr.merged_at)
             if merged_at > start_date:
                 print(mr.web_url)
+
+
+def get_milestone(gl, milestone_name):
+    group = gl.groups.get(GROUP_NAME)
+    ms = group.milestones.list()
+    our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
+    milestone = next(our_ms)
+    return milestone
 
 
 def release_tag(*args):
