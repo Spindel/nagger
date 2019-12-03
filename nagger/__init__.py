@@ -554,7 +554,6 @@ def milestone_release(*args):
             tag = project.tags.create(tag_prefs)
             _log.info("Created tag")
             print(f"{project.path_with_namespace}:  tag: {tag_name}")
-            print(tag)
         except Exception:
             _log.exception("Error creating tag.")
 
@@ -574,7 +573,6 @@ def milestone_release(*args):
             print(
                 f"{project.path_with_namespace}:  tag: {tag_name}, release: {tag_name}"
             )
-            print(release)
         except Exception:
             _log.exception("Error creating release.")
 
