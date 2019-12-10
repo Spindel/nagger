@@ -3,6 +3,7 @@
 import os
 import io
 import sys
+from typing import List
 
 import structlog
 
@@ -42,6 +43,8 @@ class ChangeLog:
     exposed: Exposed
     text: str
     slug: str
+    web_url: str
+    labels: List[str]
 
 
 def setup_logging():
@@ -404,7 +407,8 @@ def milestone_changelog(*args):
             continue
         result.write(f"## {proj_name}\n\n")
         for c in changes:
-            result.write(f"* {c.kind.name}: {c.text}\n")
+            labels = " ".join([f'~"{l}"' for l in c.labels])
+            result.write(f"* [{c.text}]({c.web_url}) {labels}  \n")
         result.write("\n")
     # End internal changes
 
@@ -463,7 +467,7 @@ def make_changelog(merge_requests):
     for mr in merge_requests:
         kind = get_kind(mr)
         exposed = get_exposed(mr)
-        line = ChangeLog(kind, exposed, mr.title, f"!{mr.iid}")
+        line = ChangeLog(kind, exposed, mr.title, f"!{mr.iid}", mr.web_url, mr.labels)
         result.append(line)
     if not result:
         line = ChangeLog(Kind.misc, Exposed.External, "No major changes", "")
