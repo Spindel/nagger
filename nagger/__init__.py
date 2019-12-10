@@ -415,6 +415,31 @@ def milestone_changelog(*args):
     print("# Internal only changes\n")
     print(result.getvalue())
 
+    ensure_agile_wiki_page(f"Release-notes-{milestone_name}", result.getvalue())
+
+
+def ensure_agile_wiki_page(title, content):
+    WIKI_PROJECT = "ModioAB/agile"
+    global _log
+    _log = _log.bind(wiki_project=WIKI_PROJECT, title=title)
+    gl = get_gitlab()
+    project = gl.projects.get(WIKI_PROJECT)
+    wikis = project.wikis
+    pages = wikis.list()
+    # if we use sane titles the slug will match title?
+    found_page = [p for p in pages if p.slug == title]
+    if not found_page:
+        _log.info("wikipage does not exists")
+        wikis.create({"title": title, "content": content})
+    elif len(found_page) == 1:
+        _log.info("wikipage exists")
+        page = wikis.get(found_page[0].slug)
+        page.content = content
+        page.save()
+    else:
+        _log.msg("Duplicate page title %. Ignoring agile_wiki_page", title)
+        return
+
 
 def milestone_fixup(*args):
     """Stomps all over a milestone"""
