@@ -348,6 +348,9 @@ def milestone_changelog(*args):
     print("# Internal only changes\n")
     print(internal_md)
 
+    ensure_agile_wiki_releasenotes(milestone_name, internal_md)
+    ensure_www_releasenotes(milestone_name, external_md)
+
 
 def make_milestone_changelog(*args):
     """Stomps all over a milestone"""
@@ -406,11 +409,8 @@ def make_milestone_changelog(*args):
 
         result.write("\n\n")
 
-    # Done, print it out (or save, or something)
-    print("--8<--" * 10 + "\n")
-    print(result.getvalue())
+    external_md = result.getvalue()
     result.close()
-    print("-->8--" * 10 + "\n")
 
     # Internal changes are more concise
     result = io.StringIO()
@@ -423,17 +423,16 @@ def make_milestone_changelog(*args):
             result.write(f"* [{c.text}]({c.web_url}) {labels}  \n")
         result.write("\n")
     # End internal changes
+    internal_md = result.getvalue()
 
-    print("# Internal only changes\n")
-    print(result.getvalue())
-
-    ensure_agile_wiki_page(f"Release-notes-{milestone_name}", result.getvalue())
+    return external_md, internal_md, milestone_name
 
 
-def ensure_agile_wiki_page(title, content):
+def ensure_agile_wiki_releasenotes(milestone_name, content):
+    title = f"Release-notes-{milestone_name}"
     WIKI_PROJECT = "ModioAB/agile"
     global _log
-    _log = _log.bind(wiki_project=WIKI_PROJECT, title=title)
+    _log = _log.bind(wiki_project=WIKI_PROJECT, milestone_name=milestone_name)
     gl = get_gitlab()
     project = gl.projects.get(WIKI_PROJECT)
     wikis = project.wikis
@@ -451,6 +450,82 @@ def ensure_agile_wiki_page(title, content):
     else:
         _log.msg("Duplicate page title %. Ignoring agile_wiki_page", title)
         return
+    _log.info("ensure_agile_wiki_releasenotes done")
+
+
+def ensure_www_releasenotes(milestone_name, content):
+    from datetime import datetime
+
+    WWW_PROJECT = "ModioAB/modio.se"
+    global _log
+    _log = _log.bind(gitlab_project=WWW_PROJECT, milestone_name=milestone_name)
+    gl = get_gitlab()
+    project = gl.projects.get(WWW_PROJECT)
+    mrs = project.mergerequests.list()
+    found_mrs = [m for m in mrs if m.title == milestone_name]
+    mr = None
+    brs = project.branches.list()
+    branch = [b for b in brs if b.name == milestone_name]
+    if not found_mrs:
+        _log.info("MR does not exist")
+        if not branch:
+            _log.info("creating new release branch")
+            branch = project.branches.create(
+                {"branch": milestone_name, "ref": "master"}
+            )
+        _log.info("MR creating")
+        mr = project.mergerequests.create(
+            {
+                "source_branch": milestone_name,
+                "target_branch": "master",
+                "title": milestone_name,
+                "remove_source_branch": True,
+            }
+        )
+    else:
+        mr = found_mrs[0]
+
+    # here we hope we have a branch
+    date = datetime.today().strftime("%Y-%m-%d")
+    category = "Releases"
+    # TODO
+    author = "D.S Ljungmark"
+    commit_message = "Nagger generated release notes"
+    preamble_and_content = (
+        f"title: Release {milestone_name}\n"
+        f"date: {date}\n"
+        f"Category: {category}"
+        f"\nauthor: {author}\n\n"
+        f"{content}"
+    )
+    file_path = f"content/news/release-{milestone_name}.md"
+
+    _log.info("file exists?")
+    file = gitlab_file_exists(project, file_path, mr.source_branch)
+    if file:
+        _log.info("Updating file")
+        file.content = preamble_and_content
+        file.save(branch=mr.source_branch, commit_message=commit_message)
+    else:
+        _log.info("creating file")
+        project.files.create(
+            {
+                "file_path": file_path,
+                "branch": mr.source_branch,
+                "commit_message": commit_message,
+                "content": preamble_and_content,
+            }
+        )
+    _log.info("ensure_www_releasenotes done")
+
+
+def gitlab_file_exists(project, file_path, branch="master"):
+    from gitlab.exceptions import GitlabGetError
+
+    try:
+        return project.files.get(file_path=file_path, ref=branch)
+    except GitlabGetError:
+        return None
 
 
 def milestone_fixup(*args):
