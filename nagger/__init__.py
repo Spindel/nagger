@@ -338,6 +338,18 @@ def projects_from_mrs(gl, merge_requests):
 
 
 def milestone_changelog(*args):
+    external_md, internal_md, milestone_name = make_milestone_changelog(*args)
+
+    # Done, print it out (or save, or something)
+    print("--8<--" * 10 + "\n")
+    print(external_md)
+    print("-->8--" * 10 + "\n")
+
+    print("# Internal only changes\n")
+    print(internal_md)
+
+
+def make_milestone_changelog(*args):
     """Stomps all over a milestone"""
     global _log
     milestone_name = " ".join(args)
