@@ -542,11 +542,17 @@ def milestone_mermaid_wiki_page(*args):
     agile = gl.getProject(WIKI_PROJECT)
     wikis = agile.wikis
     mermaid_title = f"Milestones {milestone_name}"
+    """prefer agile-project milestone"""
+    mss = agile.milestones.list(title=milestone_name, state="active", as_list=True)
+    if len(mss) > 0:
+        ms = mss[0]
+    else:
+        """fallback to group milestone"""
+        ms = get_milestone(gl, milestone_name)
+
     page = gitlab_wiki_page_exists(wikis, mermaid_title)
     if not page:
         page = wikis.create({"title": mermaid_title, "content": "nagger placeholder"})
-    mss = agile.milestones.list(title=milestone_name, as_list=False)
-    ms = next(mss)  # Boom if none found
     parts = []
     parts.append(f"## {ms.title}")
     parts.append(f"{ms.description}")
