@@ -4,6 +4,7 @@ import os
 import io
 import sys
 from typing import List
+from functools import lru_cache
 
 import structlog
 
@@ -123,12 +124,12 @@ def get_commit_sha():
 
 def get_gitlab():
     """Create a gitlab instance from CI variables"""
-    from gitlab import Gitlab
+    from .gitlab import GitLabApi
 
     global _log
     api_token = get_api_token()
     api_url = get_api_url()
-    gl = Gitlab(api_url, api_token)
+    gl = GitLabApi(api_url, api_token)
     # Authenticate so we can get our .user. data
     gl.auth()
     _log = _log.bind(API_USER=gl.user.username)
@@ -434,7 +435,7 @@ def ensure_agile_wiki_releasenotes(milestone_name, content):
     global _log
     _log = _log.bind(wiki_project=WIKI_PROJECT, milestone_name=milestone_name)
     gl = get_gitlab()
-    project = gl.projects.get(WIKI_PROJECT)
+    project = gl.getProject(WIKI_PROJECT)
     wikis = project.wikis
     found_page = gitlab_wiki_page_exists(wikis, title)
     if found_page:
@@ -538,7 +539,7 @@ def milestone_mermaid_wiki_page(*args):
     assert milestone_name, "Parameter missing: Milestone name"
     _log = _log.bind(milestone_name=milestone_name)
     gl = get_gitlab()
-    agile = gl.projects.get(WIKI_PROJECT)
+    agile = gl.getProject(WIKI_PROJECT)
     wikis = agile.wikis
     mermaid_title = f"Milestones {milestone_name}"
     page = gitlab_wiki_page_exists(wikis, mermaid_title)
@@ -559,10 +560,11 @@ def milestone_mermaid_wiki_page(*args):
     def safe(str):
         return str.replace('"', "'")
 
-    def loadIssue(issue):
-        # please use @reify https://github.com/Pylons/pyramid/blob/master/src/pyramid/decorator.py
-        project = gl.projects.get(issue.attributes['project_id'])
-        return project.issues.get(issue.iid)
+    @lru_cache(maxsize=None)
+    def loadIssue(project_id, issue_iid):
+        _log.debug("loadIssue", project=project_id, iid=issue_iid)
+        project = gl.getProject(project_id)
+        return project.issues.get(issue_iid)
 
     def doIssues(issues, ul, mermaid, used, parent = None, indent = 0):
         for shallowIssue in issues:
