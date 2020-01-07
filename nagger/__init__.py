@@ -553,12 +553,9 @@ def milestone_mermaid_wiki_page(*args):
     mermaid = []
     mermaid.append("```mermaid")
     mermaid.append("graph LR;")
-    mermaid.append("classDef closed fill:#efe,stroke-width:4px,font-style:italic;")
+    mermaid.append("classDef closed fill:#efe,stroke-width:4px;font-style:italic")
     closed = []
     ul = []
-
-    def safe(str):
-        return str.replace('"', "'")
 
     @lru_cache(maxsize=None)
     def loadIssue(project_id, issue_iid):
@@ -566,34 +563,43 @@ def milestone_mermaid_wiki_page(*args):
         project = gl.getProject(project_id)
         return project.issues.get(issue_iid)
 
-    def doIssues(issues, ul, mermaid, used, parent = None, indent = 0):
+    def mermaid_format(issue):
+        full_ref = issue.references["full"]
+        id = issue.id
+        title = issue.title.replace('"', "'")
+        ret = [f'{issue.id}["{title} {full_ref}"];']
+        if issue.state == "closed":
+            ret.append(f"class {id} {issue.state};")
+        return ret
+
+    def doIssues(issues, ul, mermaid, used, parent=None, indent=0):
         for shallowIssue in issues:
             if not shallowIssue.id in used:
-                issue = loadIssue(shallowIssue)
-                print(issue.title)
+                issue = loadIssue(shallowIssue.project_id, shallowIssue.iid)
                 used.add(issue.id)
-                ul.append(f"{' ' * 2 * indent}* {issue.title} #{issue.iid} {issue.state}")
+                tasks = ""
+                if issue.has_tasks:
+                    task_stats = issue.task_completion_status
+                    tasks = f" ({task_stats['completed_count']}/{task_stats['count']})"
+                ul.append(
+                    f"{' ' * 2 * indent}* {issue.title} {issue.references['full']}{tasks}"
+                )
                 if parent:
-                    mermaid.append(
-                        f'{parent.id}["{safe(parent.title)}"]-->{issue.id}["{safe(issue.title)}"];'
-                    )
-                doIssues(issue.links.list(as_list=False), ul, mermaid, used, issue, indent + 1 )
+                    mermaid.append(f"{parent.id}---{issue.id};")
+                    mermaid.extend(mermaid_format(parent))
 
+                mermaid.extend(mermaid_format(issue))
+                doIssues(
+                    issue.links.list(as_list=False),
+                    ul,
+                    mermaid,
+                    used,
+                    issue,
+                    indent + 1,
+                )
 
     used = set()
     doIssues(ms.issues(), ul, mermaid, used)
-    # for issue in ms.issues():
-    #     if not issue.id in used:
-    #         used.add(issue.id)
-    #         ul.append(f"* {issue.title} #{issue.iid} {issue.state}")
-    #         for linked in issue.links.list(as_list=False):
-    #             if not linked.id in used:
-    #                 used.add(linked.id)
-    #                 ul.append(f"  * {linked.title} #{linked.iid} {linked.state}")
-    #             mermaid.append(
-    #                 f'{issue.id}["{safe(issue.title)}"]---{linked.id}["{safe(linked.title)}"];'
-    #             )
-
 
     mermaid.append("```")
     parts.extend(mermaid)
