@@ -14,6 +14,7 @@ _log = None
 
 GROUP_NAME = "ModioAB"
 DEFAULT_API_URL = "https://gitlab.com/"
+WIKI_PROJECT = "ModioAB/agile"
 IGNORE_MR_PROJECTS = ["ModioAB/sysadmin", "ModioAB/clientconfig"]
 RELEASE_PROJECTS = [
     "ModioAB/afase",
@@ -430,26 +431,20 @@ def make_milestone_changelog(*args):
 
 def ensure_agile_wiki_releasenotes(milestone_name, content):
     title = f"Release-notes-{milestone_name}"
-    WIKI_PROJECT = "ModioAB/agile"
     global _log
     _log = _log.bind(wiki_project=WIKI_PROJECT, milestone_name=milestone_name)
     gl = get_gitlab()
     project = gl.projects.get(WIKI_PROJECT)
     wikis = project.wikis
-    pages = wikis.list()
-    # if we use sane titles the slug will match title?
-    found_page = [p for p in pages if p.slug == title]
-    if not found_page:
+    found_page = gitlab_wiki_page_exists(wikis, title)
+    if found_page:
+        _log.info("wikipage exists")
+        found_page.content = content
+        found_page.save()
+    else:
         _log.info("wikipage does not exists")
         wikis.create({"title": title, "content": content})
-    elif len(found_page) == 1:
-        _log.info("wikipage exists")
-        page = wikis.get(found_page[0].slug)
-        page.content = content
-        page.save()
-    else:
-        _log.msg("Duplicate page title %. Ignoring agile_wiki_page", title)
-        return
+
     _log.info("ensure_agile_wiki_releasenotes done")
 
 
@@ -461,11 +456,11 @@ def ensure_www_releasenotes(milestone_name, content):
     _log = _log.bind(gitlab_project=WWW_PROJECT, milestone_name=milestone_name)
     gl = get_gitlab()
     project = gl.projects.get(WWW_PROJECT)
-    mrs = project.mergerequests.list()
-    found_mrs = [m for m in mrs if m.title == milestone_name]
+    found_mrs = project.mergerequests.list(
+        state="opened", search=milestone_name, as_list=False
+    )
     mr = None
-    brs = project.branches.list()
-    branch = [b for b in brs if b.name == milestone_name]
+    branch = project.branches.list(search=milestone_name)
     if not found_mrs:
         _log.info("MR does not exist")
         if not branch:
@@ -483,7 +478,7 @@ def ensure_www_releasenotes(milestone_name, content):
             }
         )
     else:
-        mr = found_mrs[0]
+        mr = next(found_mrs)
 
     # here we hope we have a branch
     date = datetime.today().strftime("%Y-%m-%d")
@@ -528,6 +523,85 @@ def gitlab_file_exists(project, file_path, branch="master"):
         return None
 
 
+def gitlab_wiki_page_exists(wikis, title):
+    from gitlab.exceptions import GitlabGetError
+
+    try:
+        return wikis.get(title)
+    except GitlabGetError:
+        return None
+
+
+def milestone_mermaid_wiki_page(*args):
+    global _log
+    milestone_name = " ".join(args)
+    assert milestone_name, "Parameter missing: Milestone name"
+    _log = _log.bind(milestone_name=milestone_name)
+    gl = get_gitlab()
+    agile = gl.projects.get(WIKI_PROJECT)
+    wikis = agile.wikis
+    mermaid_title = f"Milestones {milestone_name}"
+    page = gitlab_wiki_page_exists(wikis, mermaid_title)
+    if not page:
+        page = wikis.create({"title": mermaid_title, "content": "nagger placeholder"})
+    mss = agile.milestones.list(title=milestone_name, as_list=False)
+    ms = next(mss)  # Boom if none found
+    parts = []
+    parts.append(f"## {ms.title}")
+    parts.append(f"{ms.description}")
+    mermaid = []
+    mermaid.append("```mermaid")
+    mermaid.append("graph LR;")
+    mermaid.append("classDef closed fill:#efe,stroke-width:4px,font-style:italic;")
+    closed = []
+    ul = []
+
+    def safe(str):
+        return str.replace('"', "'")
+
+    def loadIssue(issue):
+        # please use @reify https://github.com/Pylons/pyramid/blob/master/src/pyramid/decorator.py
+        project = gl.projects.get(issue.attributes['project_id'])
+        return project.issues.get(issue.iid)
+
+    def doIssues(issues, ul, mermaid, used, parent = None, indent = 0):
+        for shallowIssue in issues:
+            if not shallowIssue.id in used:
+                issue = loadIssue(shallowIssue)
+                print(issue.title)
+                used.add(issue.id)
+                ul.append(f"{' ' * 2 * indent}* {issue.title} #{issue.iid} {issue.state}")
+                if parent:
+                    mermaid.append(
+                        f'{parent.id}["{safe(parent.title)}"]-->{issue.id}["{safe(issue.title)}"];'
+                    )
+                doIssues(issue.links.list(as_list=False), ul, mermaid, used, issue, indent + 1 )
+
+
+    used = set()
+    doIssues(ms.issues(), ul, mermaid, used)
+    # for issue in ms.issues():
+    #     if not issue.id in used:
+    #         used.add(issue.id)
+    #         ul.append(f"* {issue.title} #{issue.iid} {issue.state}")
+    #         for linked in issue.links.list(as_list=False):
+    #             if not linked.id in used:
+    #                 used.add(linked.id)
+    #                 ul.append(f"  * {linked.title} #{linked.iid} {linked.state}")
+    #             mermaid.append(
+    #                 f'{issue.id}["{safe(issue.title)}"]---{linked.id}["{safe(linked.title)}"];'
+    #             )
+
+
+    mermaid.append("```")
+    parts.extend(mermaid)
+    parts.append("---")
+    parts.extend(ul)
+    page.content = "\n".join(parts)
+    page.save()
+    print(page.content)
+
+
 def milestone_fixup(*args):
     """Stomps all over a milestone"""
     from datetime import timezone
@@ -567,9 +641,8 @@ def milestone_fixup(*args):
 
 def get_milestone(gl, milestone_name):
     group = gl.groups.get(GROUP_NAME)
-    ms = group.milestones.list()
-    our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
-    milestone = next(our_ms)
+    ms = group.milestones.list(state="active", title=milestone_name, as_list=False)
+    milestone = next(ms)
     return milestone
 
 
@@ -752,6 +825,7 @@ COMMANDS = {
     "changelog": milestone_changelog,
     "fixup": milestone_fixup,
     "milestone_release": milestone_release,
+    "milestone_mermaid_wiki_page": milestone_mermaid_wiki_page,
 }
 
 
