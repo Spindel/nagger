@@ -1,20 +1,58 @@
 #!/usr/bin/env python3
 """Simple CI helper to remind people to set milestones"""
 import os
+import io
 import sys
+
 import structlog
+
+from enum import IntEnum
+from dataclasses import dataclass
 
 _log = None
 
 GROUP_NAME = "ModioAB"
 DEFAULT_API_URL = "https://gitlab.com/"
 IGNORE_MR_PROJECTS = ["ModioAB/sysadmin", "ModioAB/clientconfig"]
+RELEASE_PROJECTS = [
+    "ModioAB/afase",
+    "ModioAB/mytemp-backend",
+    "ModioAB/modio-api",
+    "ModioAB/zabbix-containers",
+    "ModioAB/submit",
+]
+
+
+class Kind(IntEnum):
+    Feature = 0
+    Bug = 1
+    misc = 9
+
+
+class Exposed(IntEnum):
+    External = 0
+    Internal = 1
+
+
+@dataclass(order=True)
+class ChangeLog:
+    """Tracking a changelog line"""
+
+    kind: Kind
+    exposed: Exposed
+    text: str
+    slug: str
 
 
 def setup_logging():
     """Global state. Eat it"""
+    import sys
+
     global _log
+    structlog.configure(logger_factory=structlog.PrintLoggerFactory(sys.stderr))
     _log = structlog.get_logger()
+    _log.debug("Logging, debug, initialized")
+    _log.msg("log.msg initialized")
 
 
 class CmdError(Exception):
@@ -256,6 +294,46 @@ def mr_nag():
         nag_this_mr(gl, mr)
 
 
+def present_kind(val: Kind):
+    if val == Kind.Feature:
+        return "New features"
+    if val == Kind.Bug:
+        return "Bug fixes"
+    if val == Kind.misc:
+        return "Misc changes"
+    return "XXX: "
+
+
+def get_kind(mr):
+    """Returns a kind based on the labels"""
+    if "Feature" in mr.labels:
+        return Kind.Feature
+    if "Bug" in mr.labels:
+        return Kind.Bug
+    return Kind.misc
+
+
+def get_exposed(mr):
+    """Returns the exposed state of a merge requests"""
+    if "Internal" in mr.labels:
+        return Exposed.Internal
+    return Exposed.External
+
+
+def projects_from_mrs(gl, merge_requests):
+    """Look up projects from merge requests"""
+    global _log
+    projects = {}
+
+    for mr in merge_requests:
+        if mr.project_id in projects:
+            continue
+        _log.info("Looking up", project_id=mr.project_id)
+        project = gl.projects.get(mr.project_id)
+        projects[mr.project_id] = project
+    return projects
+
+
 def milestone_changelog(*args):
     """Stomps all over a milestone"""
     global _log
@@ -265,28 +343,73 @@ def milestone_changelog(*args):
 
     gl = get_gitlab()
 
-    group = gl.groups.get(GROUP_NAME)
-    ms = group.milestones.list()
-    our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
-
-    milestone = next(our_ms)
+    milestone = get_milestone(gl, milestone_name)
     mrs = milestone.merge_requests()
+    merged_mr = [m for m in mrs if m.state == "merged"]
 
-    changelog = {}
-    merged_mr = (m for m in mrs if m.state == "merged")
+    # mapping of project_id => project object
+    projects = projects_from_mrs(gl, merged_mr)
+    # mapping of project_id => [ChangeLog, ChangeLog, ...]
+    changes = {}
+
     for mr in merged_mr:
-        proj_id = mr.project_id
-        title = mr.title
-        items = changelog.setdefault(proj_id, [])
-        items.append(title)
+        changes.setdefault(mr.project_id, [])
+        changes[mr.project_id].append(mr)
 
-    result = ""
-    for proj_id, changes in changelog.items():
-        proj = gl.projects.get(proj_id)
-        header = f"## {proj.path_with_namespace}"
-        rows = (f"* {row}" for row in changes)
-        result += header + "\n\n" + "\n".join(rows) + "\n\n"
-    print(result)
+    external = {}
+    internal = {}
+    for project in projects.values():
+        if project.id not in changes:
+            continue
+        merge_requests = changes[project.id]
+        changelog = make_changelog(merge_requests)
+        proj_name = project.path_with_namespace
+        external[proj_name] = [l for l in changelog if l.exposed == Exposed.External]
+        internal[proj_name] = [l for l in changelog]
+    del projects, changes
+
+    # Data structure is now:
+    #  external["ModioAB/afase"] = [change, change....]
+    #  internal["ModioAB/afase"] = [change, change....]
+
+    # External changes are visually different from internal.
+    result = io.StringIO()
+    for proj_name, changes in external.items():
+        if not changes:
+            continue
+        header = f"## {proj_name}\n"
+        result.write(header + "\n")
+
+        for kind in Kind:
+            subheader = f"{present_kind(kind)}: \n"
+            lines = (l for l in changes if l.kind == kind)
+            rows = [f"* {row.text}\n" for row in lines]
+            if rows:
+                result.write(subheader)
+                result.writelines(rows)
+                result.write("\n")
+
+        result.write("\n\n")
+
+    # Done, print it out (or save, or something)
+    print("--8<--" * 10 + "\n")
+    print(result.getvalue())
+    result.close()
+    print("-->8--" * 10 + "\n")
+
+    # Internal changes are more concise
+    result = io.StringIO()
+    for proj_name, changes in internal.items():
+        if not changes:
+            continue
+        result.write(f"## {proj_name}\n\n")
+        for c in changes:
+            result.write(f"* {c.kind.name}: {c.text}\n")
+        result.write("\n")
+    # End internal changes
+
+    print("# Internal only changes\n")
+    print(result.getvalue())
 
 
 def milestone_fixup(*args):
@@ -299,12 +422,9 @@ def milestone_fixup(*args):
     assert milestone_name, "Parameter missing: Milestone name"
     _log = _log.bind(milestone_name=milestone_name)
     gl = get_gitlab()
-
     group = gl.groups.get(GROUP_NAME)
-    ms = group.milestones.list()
-    our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
+    milestone = get_milestone(gl, milestone_name)
 
-    milestone = next(our_ms)
     assert milestone.start_date, "Milestone needs to have a Start date set"
     start_date = isoparse(milestone.start_date)
     # It's just a date, but other timestamps are datetimes, so we make it utc
@@ -312,11 +432,12 @@ def milestone_fixup(*args):
 
     # Grab all merge requests
     mrs = group.mergerequests.list(state="merged")
-    projects = {m.project_id for m in mrs}
+
+    # mapping of project_id => project object
+    projects = projects_from_mrs(gl, mrs)
     # Maybe use dateutil.parse?
 
-    for proj_id in projects:
-        project = gl.projects.get(proj_id)
+    for project in projects.values():
         if project.path_with_namespace in IGNORE_MR_PROJECTS:
             continue
 
@@ -326,6 +447,134 @@ def milestone_fixup(*args):
             merged_at = isoparse(mr.merged_at)
             if merged_at > start_date:
                 print(mr.web_url)
+
+
+def get_milestone(gl, milestone_name):
+    group = gl.groups.get(GROUP_NAME)
+    ms = group.milestones.list()
+    our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
+    milestone = next(our_ms)
+    return milestone
+
+
+def make_changelog(merge_requests):
+    """Returns a list of ChangeLog items"""
+    result = []
+    for mr in merge_requests:
+        kind = get_kind(mr)
+        exposed = get_exposed(mr)
+        line = ChangeLog(kind, exposed, mr.title, f"!{mr.iid}")
+        result.append(line)
+    if not result:
+        line = ChangeLog(Kind.misc, Exposed.External, "No major changes", "")
+        result.append(line)
+    return sorted(result)
+
+
+def milestone_release(*args):
+    """Run manually to create a release in all projects"""
+    global _log
+    tag_name = " ".join(args)
+    assert tag_name, "Parameter missing: Tag version , ex 'v3.14.0'"
+    assert tag_name.count(".") >= 2, "Tag should be a full version, v3.14.0"
+    milestone_name = tag_name.rsplit(".", 1)[0]
+    _log = _log.bind(
+        tag_name=tag_name, milestone_name=milestone_name, group_name=GROUP_NAME
+    )
+
+    gl = get_gitlab()
+    milestone = get_milestone(gl, milestone_name)
+    mrs = milestone.merge_requests()
+    merged_mrs = [m for m in mrs if m.state == "merged"]
+
+    projects = projects_from_mrs(gl, merged_mrs)
+    # Fill up with our "ALWAYS CREATE PROJECT"
+    for name in RELEASE_PROJECTS:
+        _log.info("Looking up", project=name)
+        proj = gl.projects.get(name)
+        projects[proj.id] = proj
+    del name, proj
+
+    changes = {}
+    for mr in merged_mrs:
+        changes.setdefault(mr.project_id, [])
+        changes[mr.project_id].append(mr)
+    del mr, merged_mrs
+
+    def make_text(incoming, fobj, external=True):
+        """Creates a text representation of a changelog"""
+        if external:
+            # Format external facing as markdown text with links to issues
+            our_lines = [l for l in incoming if l.exposed == Exposed.External]
+            fmt = "* [{text}]({url}) \n"
+        else:
+            # Git internal tags just get plain text format issues
+            our_lines = [l for l in incoming]
+            fmt = "* {url}: {text} \n"
+
+        for kind in Kind:
+            lines = [l for l in our_lines if l.kind == kind]
+            if not lines:
+                continue
+            fobj.write("\n")
+            fobj.write(f"## {present_kind(kind)}: \n")
+            for line in lines:
+                if line.slug:
+                    url = f"{project.path_with_namespace}{line.slug}"
+                else:
+                    url = ""
+                txt = fmt.format(text=line.text, url=url)
+                fobj.write(txt)
+
+    for project in projects.values():
+        if project.path_with_namespace in IGNORE_MR_PROJECTS:
+            continue
+        _log = _log.bind(project=project.path_with_namespace, project_id=project.id)
+        release = io.StringIO()
+        tag = io.StringIO()
+        tag.write(f"Release {tag_name}\n")
+        release.write(f"Release {tag_name}\n")
+        release.write("\n")
+        release.write(f"Milestone: {milestone.web_url} \n\n")
+
+        changelog = make_changelog(changes[project.id])
+
+        make_text(changelog, tag, external=False)
+        make_text(changelog, release, external=True)
+
+        tag_message = tag.getvalue()
+        release_message = release.getvalue()
+
+        tag.close()
+        release.close()
+        del tag, release
+
+        proj_name = project.path_with_namespace
+        tag_prefs = {"tag_name": tag_name, "message": tag_message, "ref": "master"}
+        _log = _log.bind(**tag_prefs)
+        try:
+            tag = project.tags.create(tag_prefs)
+            _log.info("Created tag", commit=tag.id)
+            print(f"{proj_name}:  tag: {tag_name} commit: {tag.id}")
+        except Exception:
+            _log.exception("Error creating tag.")
+
+        release_prefs = {
+            "tag_name": tag_name,
+            "name": tag_name,
+            "description": release_message,
+            # We cannot link to Group Milestones by name, thus we pass an empty
+            # milestone in here.  It should be the text representation of a
+            # milestone name according to the documentation that is wrong.
+            "milestones": [],
+        }
+        _log = _log.bind(**release_prefs)
+        try:
+            release = project.releases.create(release_prefs)
+            _log.info("Created release", **release_prefs)
+            print(f"{proj_name}:  tag: {release.tag_name}, release: {release.name}")
+        except Exception:
+            _log.exception("Error creating release.")
 
 
 def release_tag(*args):
@@ -386,6 +635,7 @@ COMMANDS = {
     "debug_variables": debug_variables,
     "changelog": milestone_changelog,
     "fixup": milestone_fixup,
+    "milestone_release": milestone_release,
 }
 
 
