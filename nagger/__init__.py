@@ -384,8 +384,10 @@ def make_milestone_changelog(*args):
         merge_requests = changes[project.id]
         changelog = make_changelog(merge_requests)
         proj_name = project.path_with_namespace
-        external[proj_name] = [l for l in changelog if l.exposed == Exposed.External]
         internal[proj_name] = [l for l in changelog]
+        if proj_name in IGNORE_MR_PROJECTS:
+            continue
+        external[proj_name] = [l for l in changelog if l.exposed == Exposed.External]
     del projects, changes
 
     # Data structure is now:
