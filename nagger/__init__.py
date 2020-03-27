@@ -262,6 +262,22 @@ def nag_this_mr(api, mr):
         _log.msg("Removing ugly emoji due to having Milestone")
 
 
+def get_mr_iid_from_commit(project):
+    """Try to guess the MR IIID based on the commit sha."""
+    commit_id = get_commit_sha()
+    commit = project.commits.get(commit_id)
+
+    # unlike project.merge_requests() this returns a list of dicts
+    all_mrs = commit.merge_requests()
+
+    # Reduce to "open"
+    open_mrs = (m for m in all_mrs if "open" in m["state"])
+
+    # Reduce to mrs on our project
+    this_mrs = [m["iid"] for m in open_mrs if m["project_id"] == project.id]
+    return this_mrs
+
+
 def mr_nag():
     """Merge request nagger. meant to be run in a CI job"""
     global _log
@@ -279,16 +295,7 @@ def mr_nag():
         pass
 
     if not mrs:
-        # We don't have a MR id, so we have to find one from our commit id.
-        commit_id = get_commit_sha()
-        commit = project.commits.get(commit_id)
-
-        # unlike project.merge_requests() this returns a list of dicts
-        all_mrs = commit.merge_requests()
-        # Reduce to "open"
-        open_mrs = (m for m in all_mrs if "open" in m["state"])
-        # Reduce to mrs on our project
-        this_mrs = (m["iid"] for m in open_mrs if m["project_id"] == project.id)
+        this_mrs = get_mr_iid_from_commit(project)
         mrs = [project.mergerequests.get(mr_id) for mr_id in this_mrs]
 
     for mr in mrs:
@@ -463,7 +470,14 @@ def milestone_fixup(milestone_name, pretend=False):
         for mr in mrs:
             merged_at = isoparse(mr.merged_at)
             if merged_at > start_date:
-                print(mr.web_url)
+                _log = _log.bind(mr_title=mr.title, mr_url=mr.web_url)
+                mr.milestone_id = milestone.iid
+                if not pretend:
+                    try:
+                        mr.save()
+                    except Exception as e:
+                        err = str(e)
+                        _log.error("Failed to update", exception=err)
 
 
 def get_milestone(gl, milestone_name):
@@ -553,7 +567,6 @@ def milestone_release(tag_name, dry_run):
         release.write(f"Release {tag_name}\n")
         release.write("\n")
         release.write(f"Milestone: {milestone.web_url} \n\n")
-
         changelog = make_changelog(changes[project.id])
 
         make_text(changelog, tag, external=False)
@@ -587,12 +600,13 @@ def milestone_release(tag_name, dry_run):
             "milestones": [],
         }
         _log = _log.bind(**release_prefs)
-        try:
-            release = project.releases.create(release_prefs)
-            _log.info("Created release", **release_prefs)
-            print(f"{proj_name}:  tag: {release.tag_name}, release: {release.name}")
-        except Exception:
-            _log.exception("Error creating release.")
+        if not dry_run:
+            try:
+                release = project.releases.create(release_prefs)
+                _log.info("Created release", **release_prefs)
+                print(f"{proj_name}:  tag: {release.tag_name}, release: {release.name}")
+            except Exception:
+                _log.exception("Error creating release.")
 
 
 def release_tag(*args):
