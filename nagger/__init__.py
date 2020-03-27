@@ -46,17 +46,12 @@ class ChangeLog:
 
 def setup_logging():
     """Global state. Eat it"""
-    import sys
 
     global _log
     structlog.configure(logger_factory=structlog.PrintLoggerFactory(sys.stderr))
     _log = structlog.get_logger()
     _log.debug("Logging, debug, initialized")
     _log.msg("log.msg initialized")
-
-
-class CmdError(Exception):
-    """Command not found error"""
 
 
 def get_api_url():
@@ -80,7 +75,7 @@ def get_api_token():
     return val.strip()
 
 
-def get_mr_iid(api):
+def get_mr_iid():
     """Gets a merge request id from CI variables"""
     global _log
     val = os.environ.get("CI_MERGE_REQUEST_IID")
@@ -154,7 +149,7 @@ def add_own_emoji(thing, user_id, emoji="house"):
         thing.awardemojis.create({"name": emoji})
 
 
-def debug_variables():
+def fun_debug_variables():
     """Print all CI related variables"""
     ci_keys = (k for k in os.environ if k.startswith("CI"))
     for key in sorted(ci_keys):
@@ -334,11 +329,9 @@ def projects_from_mrs(gl, merge_requests):
     return projects
 
 
-def milestone_changelog(*args):
+def milestone_changelog(milestone_name):
     """Stomps all over a milestone"""
     global _log
-    milestone_name = " ".join(args)
-    assert milestone_name, "Parameter missing: Milestone name"
     _log = _log.bind(milestone_name=milestone_name, group_name=GROUP_NAME)
 
     gl = get_gitlab()
@@ -412,18 +405,18 @@ def milestone_changelog(*args):
     print(result.getvalue())
 
 
-def milestone_fixup(*args):
+def milestone_fixup(milestone_name, pretend=False):
     """Stomps all over a milestone"""
     from datetime import timezone
     from dateutil.parser import isoparse
 
     global _log
-    milestone_name = " ".join(args)
     assert milestone_name, "Parameter missing: Milestone name"
-    _log = _log.bind(milestone_name=milestone_name)
+    _log = _log.bind(milestone_name=milestone_name, group_name=GROUP_NAME)
     gl = get_gitlab()
     group = gl.groups.get(GROUP_NAME)
     milestone = get_milestone(gl, milestone_name)
+    _log = _log.bind(milestone_iid=milestone.iid)
 
     assert milestone.start_date, "Milestone needs to have a Start date set"
     start_date = isoparse(milestone.start_date)
@@ -471,17 +464,14 @@ def make_changelog(merge_requests):
     return sorted(result)
 
 
-def milestone_release(*args):
+def milestone_release(tag_name, dry_run):
     """Run manually to create a release in all projects"""
     global _log
-    tag_name = " ".join(args)
-    assert tag_name, "Parameter missing: Tag version , ex 'v3.14.0'"
     assert tag_name.count(".") >= 2, "Tag should be a full version, v3.14.0"
     milestone_name = tag_name.rsplit(".", 1)[0]
     _log = _log.bind(
         tag_name=tag_name, milestone_name=milestone_name, group_name=GROUP_NAME
     )
-
     gl = get_gitlab()
     milestone = get_milestone(gl, milestone_name)
     mrs = milestone.merge_requests()
@@ -627,60 +617,3 @@ def release_tag(*args):
     project.releases.create(
         {"name": header, "tag_name": tagname, "description": description}
     )
-
-
-COMMANDS = {
-    "nag": mr_nag,
-    "release": release_tag,
-    "debug_variables": debug_variables,
-    "changelog": milestone_changelog,
-    "fixup": milestone_fixup,
-    "milestone_release": milestone_release,
-}
-
-
-def helptext():
-    """Prints a help text"""
-    command = sys.argv[0]
-    print(f"Usage: {command} [subcommand]")
-    for k in COMMANDS:
-        print("\t", k)
-    print("\n")
-    print("We expect NAGGUS_KEY  environment to contain an API key")
-
-
-def get_cmd():
-    """Returns a function callable from sys.argv"""
-    global _log
-    if len(sys.argv) < 2:
-        raise CmdError
-
-    try:
-        cmd = sys.argv[1]
-        command = COMMANDS[cmd]
-    except (KeyError, IndexError):
-        raise CmdError
-    args = sys.argv[2:]
-    _log.bind(command=cmd)
-    return command, args
-
-
-def main():
-    """Main command"""
-    setup_logging()
-    global _log
-
-    try:
-        command, args = get_cmd()
-    except CmdError:
-        helptext()
-        sys.exit(1)
-    try:
-        command(*args)
-    except Exception:
-        _log.exception("Error in command")
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

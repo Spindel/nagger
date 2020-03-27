@@ -11,7 +11,8 @@ with open("README.md") as readme_file:
 with open("HISTORY.rst") as history_file:
     history = history_file.read()
 
-requirements = ["python-gitlab", "structlog", "colorama", "python-dateutil"]
+requirements = ["python-gitlab", "structlog", "colorama", "python-dateutil",
+                "click"]
 
 setup_requirements = []
 
@@ -42,5 +43,5 @@ setup(
     url="https://gitlab.com/Spindel/nagger",
     version="0.1.0",
     zip_safe=False,
-    entry_points={"console_scripts": ["nagger = nagger:main"]},
+    entry_points={"console_scripts": ["nagger = nagger.cli:cli"]},
 )
