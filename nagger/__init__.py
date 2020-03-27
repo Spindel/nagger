@@ -20,6 +20,12 @@ RELEASE_PROJECTS = [
     "ModioAB/modio-api",
     "ModioAB/zabbix-containers",
     "ModioAB/submit",
+    "ModioAB/plagiation",
+    "ModioAB/housekeeper",
+    "ModioAB/containers",
+    "ModioAB/grafana-datasource",
+    "ModioAB/caramel-manager",
+    "ModioAB/visualisation-editor",
 ]
 
 
@@ -329,6 +335,18 @@ def projects_from_mrs(gl, merge_requests):
     return projects
 
 
+def projects_from_list(api):
+    """Iterate over our hard-coded projects, returning project ojbects"""
+    global _log
+    projects = {}
+    # Fill up with our "ALWAYS CREATE PROJECT"
+    for name in RELEASE_PROJECTS:
+        _log.info("Looking up id for", project=name)
+        proj = api.projects.get(name)
+        projects[proj.id] = proj
+    return projects
+
+
 def milestone_changelog(milestone_name):
     """Stomps all over a milestone"""
     global _log
@@ -428,14 +446,20 @@ def milestone_fixup(milestone_name, pretend=False):
 
     # mapping of project_id => project object
     projects = projects_from_mrs(gl, mrs)
+    for proj_id, proj in projects_from_list(gl).items():
+        projects[proj_id] = proj
+
     # Maybe use dateutil.parse?
 
     for project in projects.values():
+        _log = _log.bind(project=project.path)
         if project.path_with_namespace in IGNORE_MR_PROJECTS:
+            _log.msg("Ignoring")
             continue
 
         mrs = project.mergerequests.list(state="merged", order_by="created_at")
         mrs = (m for m in mrs if not m.milestone)
+
         for mr in mrs:
             merged_at = isoparse(mr.merged_at)
             if merged_at > start_date:
@@ -480,14 +504,17 @@ def milestone_release(tag_name, dry_run):
     projects = projects_from_mrs(gl, merged_mrs)
     # Fill up with our "ALWAYS CREATE PROJECT"
     for name in RELEASE_PROJECTS:
-        _log.info("Looking up", project=name)
+        _log.info("Looking up id for", project=name)
         proj = gl.projects.get(name)
         projects[proj.id] = proj
     del name, proj
 
     changes = {}
+    for project_id in projects:
+        changes.setdefault(project_id, [])
+    del project_id
+
     for mr in merged_mrs:
-        changes.setdefault(mr.project_id, [])
         changes[mr.project_id].append(mr)
     del mr, merged_mrs
 
@@ -546,8 +573,9 @@ def milestone_release(tag_name, dry_run):
             tag = project.tags.create(tag_prefs)
             _log.info("Created tag", commit=tag.id)
             print(f"{proj_name}:  tag: {tag_name} commit: {tag.id}")
-        except Exception:
-            _log.exception("Error creating tag.")
+        except Exception as e:
+            err_msg = str(e)
+            _log.error("Error creating tag.", error=err_msg)
 
         release_prefs = {
             "tag_name": tag_name,
