@@ -11,7 +11,7 @@ with open("README.md") as readme_file:
 with open("HISTORY.rst") as history_file:
     history = history_file.read()
 
-requirements = ["python-gitlab", "structlog", "colorama", "python-dateutil",
+requirements = ["python-gitlab", "structlog>==20.1.0.", "colorama", "python-dateutil",
                 "click"]
 
 setup_requirements = []
