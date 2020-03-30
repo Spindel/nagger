@@ -147,10 +147,8 @@ def make_changelog(merge_requests):
     for mr in merge_requests:
         kind = get_kind(mr)
         exposed = get_exposed(mr)
-        line = ChangeLog(kind, exposed, mr.title, f"!{mr.iid}")
-        result.append(line)
-    if not result:
-        line = ChangeLog(Kind.misc, Exposed.External, "No major changes", "")
+        slug = mr.references["full"]
+        line = ChangeLog(kind, exposed, mr.title, f"{slug}")
         result.append(line)
     return sorted(result)
 
@@ -176,6 +174,7 @@ def milestone_changelog(milestone_name):
     internal = {}
     for project_id, merge_requests in changes.items():
         bind_contextvars(project_id=project_id, num_mrs=len(merge_requests))
+
         changelog = make_changelog(merge_requests)
         project = projects[project_id]
         proj_name = project.path_with_namespace
@@ -308,16 +307,19 @@ def milestone_release(tag_name, dry_run):
         changes[mr.project_id].append(mr)
     del mr, merged_mrs
 
-    def make_text(incoming, fobj, external=True):
+    def make_text(incoming, fobj, release=True):
         """Creates a text representation of a changelog"""
-        if external:
-            # Format external facing as markdown text with links to issues
-            our_lines = [l for l in incoming if l.exposed == Exposed.External]
-            fmt = "* [{text}]({url}) \n"
-        else:
-            # Git internal tags just get plain text format issues
-            our_lines = [l for l in incoming]
-            fmt = "* {url}: {text} \n"
+        fmt_release = "* [{text}]({url}) \n"
+        fmt_tag = "* {url}: {text} \n"
+        fmt_nourl = "* {text} \n"
+
+        # Git internal tags just get plain text format issues
+        our_lines = [l for l in incoming]
+
+        if not our_lines:
+            fobj.write("\n")
+            fobj.write("No major changes")
+        return
 
         for kind in Kind:
             lines = [l for l in our_lines if l.kind == kind]
@@ -326,11 +328,14 @@ def milestone_release(tag_name, dry_run):
             fobj.write("\n")
             fobj.write(f"## {present_kind(kind)}: \n")
             for line in lines:
-                if line.slug:
-                    url = f"{project.path_with_namespace}{line.slug}"
+                if not line.slug:
+                    txt = fmt_nourl.format(text=line.text)
+                # Release text formatting
+                elif release:
+                    txt = fmt_release.format(text=line.text, url=line.slug)
+                # tag text formatting
                 else:
-                    url = ""
-                txt = fmt.format(text=line.text, url=url)
+                    txt = fmt_tag.format(text=line.text, url=line.slug)
                 fobj.write(txt)
 
     for project in projects.values():
@@ -345,8 +350,8 @@ def milestone_release(tag_name, dry_run):
         release.write(f"Milestone: {milestone.web_url} \n\n")
         changelog = make_changelog(changes[project.id])
 
-        make_text(changelog, tag, external=False)
-        make_text(changelog, release, external=True)
+        make_text(changelog, tag, release=False)
+        make_text(changelog, release, release=True)
 
         tag_message = tag.getvalue()
         release_message = release.getvalue()
@@ -357,8 +362,10 @@ def milestone_release(tag_name, dry_run):
 
         proj_name = project.path_with_namespace
         tag_prefs = {"tag_name": tag_name, "message": tag_message, "ref": "master"}
-        bind_contextvars(**tag_prefs)
-        if not dry_run:
+        bind_contextvars(tag_name=tag_name, tag_message=tag_message, tag_ref="master")
+        if dry_run:
+            _log.msg("Would create tag")
+        else:
             try:
                 tag = project.tags.create(tag_prefs)
                 _log.info("Created tag", commit=tag.id)
