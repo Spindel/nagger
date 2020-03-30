@@ -99,6 +99,7 @@ def fixup(ctx, dry_run, milestone):
 @click.argument("tag-name")
 def tag_release(dry_run, tag_name):
     """Try to tag all projects involved with the milestone."""
+    setup_logging()
     assert tag_name.count(".") >= 2, "A full tag name, eg v3.15.0"
     release.milestone_release(tag_name, dry_run)
 
