@@ -24,6 +24,7 @@ RELEASE_PROJECTS = [
     "ModioAB/grafana-datasource",
     "ModioAB/caramel-manager",
     "ModioAB/visualisation-editor",
+    "ModioAB/nagger",
 ]
 
 

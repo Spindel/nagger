@@ -77,7 +77,7 @@ def get_milestone(gl, milestone_name):
     ms = group.milestones.list()
     our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
     milestone = next(our_ms)
-    bind_contextvars(milestone_iid=milestone.iid)
+    bind_contextvars(milestone_id=milestone.id)
     return milestone
 
 
@@ -134,8 +134,9 @@ def projects_from_list(api):
     projects = {}
     # Fill up with our "ALWAYS CREATE PROJECT"
     for name in RELEASE_PROJECTS:
-        _log.info("Looking up project", project=name)
+        _log.info("Looking up project", project_name=name)
         proj = api.projects.get(name)
+        _log.msg("Done", project=proj.path_with_namespace)
         projects[proj.id] = proj
     return projects
 
@@ -231,6 +232,7 @@ def milestone_fixup(milestone_name, pretend=False):
     """Stomps all over a milestone"""
     assert milestone_name, "Parameter missing: Milestone name"
     gl = get_gitlab()
+    bind_contextvars(pretend=pretend)
 
     milestone = get_milestone(gl, milestone_name)
     assert milestone.start_date, "Milestone needs to have a Start date set"
@@ -254,7 +256,7 @@ def milestone_fixup(milestone_name, pretend=False):
     # Maybe use dateutil.parse?
 
     for project in projects.values():
-        bind_contextvars(project=project.path)
+        bind_contextvars(project=project.path_with_namespace)
         if project.path_with_namespace in IGNORE_MR_PROJECTS:
             _log.msg("Ignoring")
             continue
@@ -263,17 +265,18 @@ def milestone_fixup(milestone_name, pretend=False):
         mrs = (m for m in mrs if not m.milestone)
 
         for mr in mrs:
+            bind_contextvars(mr_title=mr.title, mr_url=mr.web_url)
             merged_at = isoparse(mr.merged_at)
             if merged_at > start_date:
-                bind_contextvars(mr_title=mr.title, mr_url=mr.web_url)
-                mr.milestone_id = milestone.iid
+                mr.milestone_id = milestone.id
+                _log.msg("Assigning to milestone")
                 if not pretend:
                     try:
                         mr.save()
                     except Exception as e:
                         err = str(e)
                         _log.error("Failed to update", exception=err)
-                unbind_contextvars("mr_title", "mr_url")
+            unbind_contextvars("mr_title", "mr_url")
         unbind_contextvars("project")
 
 
@@ -291,7 +294,7 @@ def milestone_release(tag_name, dry_run):
     projects = projects_from_mrs(gl, merged_mrs)
     # Fill up with our "ALWAYS CREATE PROJECT"
     for name in RELEASE_PROJECTS:
-        _log.info("Looking up id for", project=name)
+        _log.info("Looking up id for", project_name=name)
         proj = gl.projects.get(name)
         projects[proj.id] = proj
     del name, proj
