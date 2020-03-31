@@ -326,7 +326,7 @@ def milestone_release(tag_name, dry_run):
             if not lines:
                 continue
             fobj.write("\n")
-            fobj.write(f"## {present_kind(kind)}: \n")
+            fobj.write(f"## {present_kind(kind)}: \n\n")
             for line in lines:
                 if not line.slug:
                     txt = fmt_nourl.format(text=line.text)
@@ -344,7 +344,7 @@ def milestone_release(tag_name, dry_run):
         bind_contextvars(project=project.path_with_namespace, project_id=project.id)
         release = io.StringIO()
         tag = io.StringIO()
-        tag.write(f"Release {tag_name}\n")
+        tag.write(f"Release {tag_name}\n\n")
         release.write(f"Release {tag_name}\n")
         release.write("\n")
         release.write(f"Milestone: {milestone.web_url} \n\n")
