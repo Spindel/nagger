@@ -13,6 +13,8 @@ with open("HISTORY.rst") as history_file:
 
 requirements = [
     "python-gitlab >= 2.1.2",
+    "requests",
+    "oauthlib",
     "structlog >= 20.1",
     "colorama",
     "python-dateutil",

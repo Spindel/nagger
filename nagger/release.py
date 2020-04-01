@@ -12,7 +12,6 @@ from dateutil.parser import isoparse
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars, unbind_contextvars
 
-from . import get_gitlab
 from . import GROUP_NAME, RELEASE_PROJECTS, IGNORE_MR_PROJECTS
 
 _log = get_logger("nagger")
@@ -74,7 +73,7 @@ def get_exposed(mr):
 def get_milestone(gl, milestone_name):
     bind_contextvars(milestone_name=milestone_name, group_name=GROUP_NAME)
     group = gl.groups.get(GROUP_NAME)
-    ms = group.milestones.list()
+    ms = group.milestones.list(all=True)
     our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
     milestone = next(our_ms)
     bind_contextvars(milestone_id=milestone.id)
@@ -104,13 +103,12 @@ def test_is_version():
     assert is_version("2020-03-21") is False
 
 
-def get_milestones():
+def get_milestones(gl):
     """Gets a list of active milestones."""
-    gl = get_gitlab()
     bind_contextvars(group_name=GROUP_NAME)
     group = gl.groups.get(GROUP_NAME)
     _log.debug("Retrieving milestones")
-    active_milestones = group.milestones.list(state="active")
+    active_milestones = group.milestones.list(state="active", all=True)
     filtered = (m for m in active_milestones if is_version(m.title))
     result = [m.title for m in filtered]
     return result
@@ -153,10 +151,8 @@ def make_changelog(merge_requests):
     return sorted(result)
 
 
-def milestone_changelog(milestone_name):
+def milestone_changelog(gl, milestone_name):
     """Stomps all over a milestone"""
-
-    gl = get_gitlab()
     milestone = get_milestone(gl, milestone_name)
     mrs = milestone.merge_requests()
     merged_mr = [m for m in mrs if m.state == "merged"]
@@ -227,10 +223,9 @@ def milestone_changelog(milestone_name):
     print(result.getvalue())
 
 
-def milestone_fixup(milestone_name, pretend=False):
+def milestone_fixup(gl, milestone_name, pretend=False):
     """Stomps all over a milestone"""
     assert milestone_name, "Parameter missing: Milestone name"
-    gl = get_gitlab()
     bind_contextvars(pretend=pretend)
 
     milestone = get_milestone(gl, milestone_name)
@@ -245,7 +240,7 @@ def milestone_fixup(milestone_name, pretend=False):
     group = gl.groups.get(GROUP_NAME)
 
     # Grab all merge requests
-    mrs = group.mergerequests.list(state="merged")
+    mrs = group.mergerequests.list(state="merged", all=True)
 
     # mapping of project_id => project object
     projects = projects_from_mrs(gl, mrs)
@@ -260,7 +255,9 @@ def milestone_fixup(milestone_name, pretend=False):
             _log.msg("Ignoring")
             continue
 
-        mrs = project.mergerequests.list(state="merged", order_by="created_at")
+        mrs = project.mergerequests.list(
+            state="merged", order_by="created_at", all=True
+        )
         mrs = (m for m in mrs if not m.milestone)
 
         for mr in mrs:
@@ -279,10 +276,9 @@ def milestone_fixup(milestone_name, pretend=False):
         unbind_contextvars("project")
 
 
-def milestone_release(tag_name, dry_run):
+def milestone_release(gl, tag_name, dry_run):
     """Run manually to create a release in all projects"""
     assert tag_name.count(".") >= 2, "Tag should be a full version, v3.14.0"
-    gl = get_gitlab()
     bind_contextvars(tag_name=tag_name)
 
     milestone_name = tag_name.rsplit(".", 1)[0]
