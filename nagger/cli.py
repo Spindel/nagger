@@ -4,7 +4,7 @@ import os
 import sys
 
 import click
-from . import get_gitlab, get_oauth_gitlab, NoToken
+from . import get_env_gitlab, get_oauth_gitlab, NoToken
 from . import ci_bot
 from . import release
 
@@ -56,7 +56,7 @@ def debug_variables():
 def nag():
     """Merge request nagger. meant to be run in a CI job"""
     setup_logging()
-    gl = get_ci_gitlab()
+    gl = get_env_gitlab()
     ci_bot.mr_nag(gl)
 
 
@@ -64,7 +64,7 @@ def nag():
 def tag_to_release():
     """Turn a tag to a release object."""
     setup_logging()
-    gl = get_ci_gitlab()
+    gl = get_env_gitlab()
     ci_bot.release_tag(gl)
 
 
@@ -84,7 +84,7 @@ def changelog(milestone):
     """Generate changelog for milestone"""
     setup_logging()
     try:
-        gl = get_ci_gitlab()
+        gl = get_env_gitlab()
     except NoToken:
         gl = get_oauth_gitlab()
 
@@ -101,7 +101,7 @@ def fixup(ctx, dry_run, milestone):
     issues."""
     setup_logging()
     try:
-        gl = get_ci_gitlab()
+        gl = get_env_gitlab()
     except NoToken:
         gl = get_oauth_gitlab()
     milestone = _prompt_milestone(gl, milestone)
@@ -116,7 +116,7 @@ def tag_release(dry_run, tag_name):
     setup_logging()
     assert tag_name.count(".") >= 2, "A full tag name, eg v3.15.0"
     try:
-        gl = get_ci_gitlab()
+        gl = get_env_gitlab()
     except NoToken:
         gl = get_oauth_gitlab()
     release.milestone_release(gl, tag_name, dry_run)
