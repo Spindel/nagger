@@ -10,6 +10,7 @@ from datetime import timezone
 from dateutil.parser import isoparse
 
 from structlog import get_logger
+from .logs import log_state
 from structlog.contextvars import bind_contextvars, unbind_contextvars
 
 from . import GROUP_NAME, RELEASE_PROJECTS, IGNORE_MR_PROJECTS
@@ -235,6 +236,11 @@ def milestone_fixup(gl, milestone_name, pretend=False):
     # so we make it utc so they can be compared.
     start_date = start_date.replace(tzinfo=timezone.utc)
 
+    assert milestone.due_date, "Milestone needs to have a Due Date set"
+    due_date = isoparse(milestone.due_date)
+    # We need to compare this with datetime objects, so we need a timezone
+    due_date = due_date.replace(tzinfo=timezone.utc)
+
     # We don't use the milestone to get the merge requests, as we are
     # interested in all the ones NOT part of the milestone
     group = gl.groups.get(GROUP_NAME)
@@ -250,30 +256,31 @@ def milestone_fixup(gl, milestone_name, pretend=False):
     # Maybe use dateutil.parse?
 
     for project in projects.values():
-        bind_contextvars(project=project.path_with_namespace)
-        if project.path_with_namespace in IGNORE_MR_PROJECTS:
-            _log.msg("Ignoring")
-            continue
+        with log_state(project=project.path_with_namespace):
+            if project.path_with_namespace in IGNORE_MR_PROJECTS:
+                _log.msg("Ignoring project")
+                continue
 
-        mrs = project.mergerequests.list(
-            state="merged", order_by="created_at", all=True
-        )
-        mrs = (m for m in mrs if not m.milestone)
+            mrs = project.mergerequests.list(
+                state="merged", order_by="created_at", all=True
+            )
+            mrs = (m for m in mrs if not m.milestone)
 
-        for mr in mrs:
-            bind_contextvars(mr_title=mr.title, mr_url=mr.web_url)
-            merged_at = isoparse(mr.merged_at)
-            if merged_at > start_date:
-                mr.milestone_id = milestone.id
-                _log.msg("Assigning to milestone")
-                if not pretend:
-                    try:
-                        mr.save()
-                    except Exception as e:
-                        err = str(e)
-                        _log.error("Failed to update", exception=err)
-            unbind_contextvars("mr_title", "mr_url")
-        unbind_contextvars("project")
+            for mr in mrs:
+                with log_state(mr_title=mr.title, mr_url=mr.web_url):
+                    if not mr.merged_at:
+                        _log.msg("No merged date, ignoring")
+                        continue
+                    merged_at = isoparse(mr.merged_at)
+                    if start_date < merged_at < due_date:
+                        mr.milestone_id = milestone.id
+                        _log.msg("Assigning to milestone")
+                        if not pretend:
+                            try:
+                                mr.save()
+                            except Exception as e:
+                                err = str(e)
+                                _log.error("Failed to update", exception=err)
 
 
 def milestone_release(gl, tag_name, dry_run):
