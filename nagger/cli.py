@@ -4,6 +4,7 @@ import os
 import sys
 
 import click
+from . import get_env_gitlab, get_oauth_gitlab, NoToken
 from . import ci_bot
 from . import release
 
@@ -30,11 +31,11 @@ def setup_logging():
     log.msg("log.msg initialized")
 
 
-def _prompt_milestone(milestone: str) -> str:
+def _prompt_milestone(gl, milestone: str) -> str:
     """Helper for interactive use of prompting for milestone."""
     if milestone:
         return milestone
-    ok_milestones = release.get_milestones()
+    ok_milestones = release.get_milestones(gl)
     choice = click.Choice(ok_milestones)
     milestone = click.prompt("Pick milestone", show_choices=True, type=choice)
     return milestone
@@ -54,13 +55,17 @@ def debug_variables():
 @bot.command()
 def nag():
     """Merge request nagger. meant to be run in a CI job"""
-    ci_bot.mr_nag()
+    setup_logging()
+    gl = get_env_gitlab()
+    ci_bot.mr_nag(gl)
 
 
 @bot.command()
 def tag_to_release():
     """Turn a tag to a release object."""
-    ci_bot.release_tag()
+    setup_logging()
+    gl = get_env_gitlab()
+    ci_bot.release_tag(gl)
 
 
 @click.group()
@@ -78,8 +83,13 @@ def milestone(ctx):
 def changelog(milestone):
     """Generate changelog for milestone"""
     setup_logging()
-    milestone = _prompt_milestone(milestone)
-    release.milestone_changelog(milestone)
+    try:
+        gl = get_env_gitlab()
+    except NoToken:
+        gl = get_oauth_gitlab()
+
+    milestone = _prompt_milestone(gl, milestone)
+    release.milestone_changelog(gl, milestone)
 
 
 @milestone.command()
@@ -90,8 +100,12 @@ def fixup(ctx, dry_run, milestone):
     """Stomp all over the milestone and attempt to fix Merge requests and
     issues."""
     setup_logging()
-    milestone = _prompt_milestone(milestone)
-    release.milestone_fixup(milestone, dry_run)
+    try:
+        gl = get_env_gitlab()
+    except NoToken:
+        gl = get_oauth_gitlab()
+    milestone = _prompt_milestone(gl, milestone)
+    release.milestone_fixup(gl, milestone, dry_run)
 
 
 @milestone.command()
@@ -99,8 +113,13 @@ def fixup(ctx, dry_run, milestone):
 @click.argument("tag-name")
 def tag_release(dry_run, tag_name):
     """Try to tag all projects involved with the milestone."""
+    setup_logging()
     assert tag_name.count(".") >= 2, "A full tag name, eg v3.15.0"
-    release.milestone_release(tag_name, dry_run)
+    try:
+        gl = get_env_gitlab()
+    except NoToken:
+        gl = get_oauth_gitlab()
+    release.milestone_release(gl, tag_name, dry_run)
 
 
 cli = click.CommandCollection(sources=[milestone, bot])

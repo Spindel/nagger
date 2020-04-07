@@ -5,8 +5,6 @@ import os
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars
 
-from . import get_gitlab
-
 
 _log = get_logger(__name__)
 
@@ -197,9 +195,8 @@ def nag_this_mr(api, mr):
         _log.msg("Removing ugly emoji due to having Milestone")
 
 
-def mr_nag():
+def mr_nag(gl):
     """Merge request nagger. meant to be run in a CI job"""
-    gl = get_gitlab()
     project = get_project(api=gl)
 
     mrs = []
@@ -217,9 +214,8 @@ def mr_nag():
         nag_this_mr(gl, mr)
 
 
-def release_tag():
+def release_tag(gl):
     """Run from "only: -tags"  to turn tags into releases. WIP WIP WIP"""
-    gl = get_gitlab()
     project = get_project(api=gl)
 
     tagname = get_commit_tag()

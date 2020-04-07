@@ -10,9 +10,9 @@ from datetime import timezone
 from dateutil.parser import isoparse
 
 from structlog import get_logger
+from .logs import log_state
 from structlog.contextvars import bind_contextvars, unbind_contextvars
 
-from . import get_gitlab
 from . import GROUP_NAME, RELEASE_PROJECTS, IGNORE_MR_PROJECTS
 
 _log = get_logger("nagger")
@@ -74,7 +74,7 @@ def get_exposed(mr):
 def get_milestone(gl, milestone_name):
     bind_contextvars(milestone_name=milestone_name, group_name=GROUP_NAME)
     group = gl.groups.get(GROUP_NAME)
-    ms = group.milestones.list()
+    ms = group.milestones.list(all=True)
     our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
     milestone = next(our_ms)
     bind_contextvars(milestone_id=milestone.id)
@@ -104,13 +104,12 @@ def test_is_version():
     assert is_version("2020-03-21") is False
 
 
-def get_milestones():
+def get_milestones(gl):
     """Gets a list of active milestones."""
-    gl = get_gitlab()
     bind_contextvars(group_name=GROUP_NAME)
     group = gl.groups.get(GROUP_NAME)
     _log.debug("Retrieving milestones")
-    active_milestones = group.milestones.list(state="active")
+    active_milestones = group.milestones.list(state="active", all=True)
     filtered = (m for m in active_milestones if is_version(m.title))
     result = [m.title for m in filtered]
     return result
@@ -147,18 +146,14 @@ def make_changelog(merge_requests):
     for mr in merge_requests:
         kind = get_kind(mr)
         exposed = get_exposed(mr)
-        line = ChangeLog(kind, exposed, mr.title, f"!{mr.iid}")
-        result.append(line)
-    if not result:
-        line = ChangeLog(Kind.misc, Exposed.External, "No major changes", "")
+        slug = mr.references["full"]
+        line = ChangeLog(kind, exposed, mr.title, f"{slug}")
         result.append(line)
     return sorted(result)
 
 
-def milestone_changelog(milestone_name):
+def milestone_changelog(gl, milestone_name):
     """Stomps all over a milestone"""
-
-    gl = get_gitlab()
     milestone = get_milestone(gl, milestone_name)
     mrs = milestone.merge_requests()
     merged_mr = [m for m in mrs if m.state == "merged"]
@@ -176,6 +171,7 @@ def milestone_changelog(milestone_name):
     internal = {}
     for project_id, merge_requests in changes.items():
         bind_contextvars(project_id=project_id, num_mrs=len(merge_requests))
+
         changelog = make_changelog(merge_requests)
         project = projects[project_id]
         proj_name = project.path_with_namespace
@@ -228,10 +224,9 @@ def milestone_changelog(milestone_name):
     print(result.getvalue())
 
 
-def milestone_fixup(milestone_name, pretend=False):
+def milestone_fixup(gl, milestone_name, pretend=False):
     """Stomps all over a milestone"""
     assert milestone_name, "Parameter missing: Milestone name"
-    gl = get_gitlab()
     bind_contextvars(pretend=pretend)
 
     milestone = get_milestone(gl, milestone_name)
@@ -241,12 +236,17 @@ def milestone_fixup(milestone_name, pretend=False):
     # so we make it utc so they can be compared.
     start_date = start_date.replace(tzinfo=timezone.utc)
 
+    assert milestone.due_date, "Milestone needs to have a Due Date set"
+    due_date = isoparse(milestone.due_date)
+    # We need to compare this with datetime objects, so we need a timezone
+    due_date = due_date.replace(tzinfo=timezone.utc)
+
     # We don't use the milestone to get the merge requests, as we are
     # interested in all the ones NOT part of the milestone
     group = gl.groups.get(GROUP_NAME)
 
     # Grab all merge requests
-    mrs = group.mergerequests.list(state="merged")
+    mrs = group.mergerequests.list(state="merged", all=True)
 
     # mapping of project_id => project object
     projects = projects_from_mrs(gl, mrs)
@@ -256,34 +256,36 @@ def milestone_fixup(milestone_name, pretend=False):
     # Maybe use dateutil.parse?
 
     for project in projects.values():
-        bind_contextvars(project=project.path_with_namespace)
-        if project.path_with_namespace in IGNORE_MR_PROJECTS:
-            _log.msg("Ignoring")
-            continue
+        with log_state(project=project.path_with_namespace):
+            if project.path_with_namespace in IGNORE_MR_PROJECTS:
+                _log.msg("Ignoring project")
+                continue
 
-        mrs = project.mergerequests.list(state="merged", order_by="created_at")
-        mrs = (m for m in mrs if not m.milestone)
+            mrs = project.mergerequests.list(
+                state="merged", order_by="created_at", all=True
+            )
+            mrs = (m for m in mrs if not m.milestone)
 
-        for mr in mrs:
-            bind_contextvars(mr_title=mr.title, mr_url=mr.web_url)
-            merged_at = isoparse(mr.merged_at)
-            if merged_at > start_date:
-                mr.milestone_id = milestone.id
-                _log.msg("Assigning to milestone")
-                if not pretend:
-                    try:
-                        mr.save()
-                    except Exception as e:
-                        err = str(e)
-                        _log.error("Failed to update", exception=err)
-            unbind_contextvars("mr_title", "mr_url")
-        unbind_contextvars("project")
+            for mr in mrs:
+                with log_state(mr_title=mr.title, mr_url=mr.web_url):
+                    if not mr.merged_at:
+                        _log.msg("No merged date, ignoring")
+                        continue
+                    merged_at = isoparse(mr.merged_at)
+                    if start_date < merged_at < due_date:
+                        mr.milestone_id = milestone.id
+                        _log.msg("Assigning to milestone")
+                        if not pretend:
+                            try:
+                                mr.save()
+                            except Exception as e:
+                                err = str(e)
+                                _log.error("Failed to update", exception=err)
 
 
-def milestone_release(tag_name, dry_run):
+def milestone_release(gl, tag_name, dry_run):
     """Run manually to create a release in all projects"""
     assert tag_name.count(".") >= 2, "Tag should be a full version, v3.14.0"
-    gl = get_gitlab()
     bind_contextvars(tag_name=tag_name)
 
     milestone_name = tag_name.rsplit(".", 1)[0]
@@ -308,29 +310,35 @@ def milestone_release(tag_name, dry_run):
         changes[mr.project_id].append(mr)
     del mr, merged_mrs
 
-    def make_text(incoming, fobj, external=True):
+    def make_text(incoming, fobj, release=True):
         """Creates a text representation of a changelog"""
-        if external:
-            # Format external facing as markdown text with links to issues
-            our_lines = [l for l in incoming if l.exposed == Exposed.External]
-            fmt = "* [{text}]({url}) \n"
-        else:
-            # Git internal tags just get plain text format issues
-            our_lines = [l for l in incoming]
-            fmt = "* {url}: {text} \n"
+        fmt_release = "* [{text}]({url}) \n"
+        fmt_tag = "* {url}: {text} \n"
+        fmt_nourl = "* {text} \n"
+
+        # Git internal tags just get plain text format issues
+        our_lines = [l for l in incoming]
+
+        if not our_lines:
+            fobj.write("\n")
+            fobj.write("No major changes")
+        return
 
         for kind in Kind:
             lines = [l for l in our_lines if l.kind == kind]
             if not lines:
                 continue
             fobj.write("\n")
-            fobj.write(f"## {present_kind(kind)}: \n")
+            fobj.write(f"## {present_kind(kind)}: \n\n")
             for line in lines:
-                if line.slug:
-                    url = f"{project.path_with_namespace}{line.slug}"
+                if not line.slug:
+                    txt = fmt_nourl.format(text=line.text)
+                # Release text formatting
+                elif release:
+                    txt = fmt_release.format(text=line.text, url=line.slug)
+                # tag text formatting
                 else:
-                    url = ""
-                txt = fmt.format(text=line.text, url=url)
+                    txt = fmt_tag.format(text=line.text, url=line.slug)
                 fobj.write(txt)
 
     for project in projects.values():
@@ -339,14 +347,14 @@ def milestone_release(tag_name, dry_run):
         bind_contextvars(project=project.path_with_namespace, project_id=project.id)
         release = io.StringIO()
         tag = io.StringIO()
-        tag.write(f"Release {tag_name}\n")
+        tag.write(f"Release {tag_name}\n\n")
         release.write(f"Release {tag_name}\n")
         release.write("\n")
         release.write(f"Milestone: {milestone.web_url} \n\n")
         changelog = make_changelog(changes[project.id])
 
-        make_text(changelog, tag, external=False)
-        make_text(changelog, release, external=True)
+        make_text(changelog, tag, release=False)
+        make_text(changelog, release, release=True)
 
         tag_message = tag.getvalue()
         release_message = release.getvalue()
@@ -357,8 +365,10 @@ def milestone_release(tag_name, dry_run):
 
         proj_name = project.path_with_namespace
         tag_prefs = {"tag_name": tag_name, "message": tag_message, "ref": "master"}
-        bind_contextvars(**tag_prefs)
-        if not dry_run:
+        bind_contextvars(tag_name=tag_name, tag_message=tag_message, tag_ref="master")
+        if dry_run:
+            _log.msg("Would create tag")
+        else:
             try:
                 tag = project.tags.create(tag_prefs)
                 _log.info("Created tag", commit=tag.id)
