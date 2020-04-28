@@ -436,3 +436,40 @@ def changelog_homepage(gl, milestone_name, dry_run=True, www_project=WWW_PROJECT
         message=commit_message,
     )
     _log.info("Homepage article updated")
+
+
+WIKI_PROJECT = "ModioAB/agile"
+
+
+def changelog_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
+    title = f"Release-notes-{milestone_name}"
+    bind_contextvars(wiki_project=wiki_project, milestone_name=milestone_name)
+
+    all_changes = make_milestone_changelog(gl, milestone_name)
+    wiki_md = get_template("wiki.md")
+    content = wiki_md.render(milestone_name=milestone_name, projects=all_changes)
+
+    project = gl.projects.get(wiki_project)
+    wikis = project.wikis
+    pages = wikis.list()
+    # if we use sane titles the slug will match title?
+    found_page = [p for p in pages if p.slug == title]
+    args = {
+        "title": title,
+        "content": content,
+    }
+    if dry_run:
+        print("DRY RUN", title)
+        print(content)
+        return
+
+    if not found_page:
+        _log.info("Creating page", **args)
+        wikis.create(args)
+    elif len(found_page) == 1:
+        _log.info("Updating page", **args)
+        page = wikis.get(found_page[0].slug)
+        page.content = content
+        page.save()
+    else:
+        _log.msg("Duplicate page title, ignoring.", title=title)
