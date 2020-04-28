@@ -7,10 +7,10 @@
 {{ kind | present_kind }}:
 {% endif %}
 * {{ change.text }}
-{% endfor %}
 {% if loop.last %}
 
 {% endif %}
+{% endfor %}
 {% endfor %}
 
 {% endif %}

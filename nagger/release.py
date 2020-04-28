@@ -85,6 +85,11 @@ def get_milestone(gl, milestone_name):
     bind_contextvars(milestone_id=milestone.id)
     return milestone
 
+def labels_to_md(labels: List[str]):
+    """Convert a list of labels to GitLab markdown labels"""
+    prefixed = (f"~{label}" for label in labels)
+    result = " ".join(prefixed)
+    return result
 
 def get_template(template_name: str):
     environment = Environment(
@@ -93,6 +98,7 @@ def get_template(template_name: str):
         lstrip_blocks=True,
     )
     environment.filters["present_kind"] = present_kind
+    environment.filters["labels2md"] = labels_to_md
     environment.globals["Kind"] = Kind
     return environment.get_template(template_name)
 
