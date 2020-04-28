@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 """Simple CI helper to remind people to set milestones"""
-import io
-
 from enum import IntEnum
 from dataclasses import dataclass
 
@@ -300,58 +298,19 @@ def milestone_release(gl, tag_name, dry_run):
         changes[mr.project_id].append(mr)
     del mr, merged_mrs
 
-    def make_text(incoming, fobj, release=True):
-        """Creates a text representation of a changelog"""
-        fmt_release = "* [{text}]({url}) \n"
-        fmt_tag = "* {url}: {text} \n"
-        fmt_nourl = "* {text} \n"
-
-        # Git internal tags just get plain text format issues
-        our_lines = [l for l in incoming]
-
-        if not our_lines:
-            fobj.write("\n")
-            fobj.write("No major changes")
-        return
-
-        for kind in Kind:
-            lines = [l for l in our_lines if l.kind == kind]
-            if not lines:
-                continue
-            fobj.write("\n")
-            fobj.write(f"## {present_kind(kind)}: \n\n")
-            for line in lines:
-                if not line.slug:
-                    txt = fmt_nourl.format(text=line.text)
-                # Release text formatting
-                elif release:
-                    txt = fmt_release.format(text=line.text, url=line.slug)
-                # tag text formatting
-                else:
-                    txt = fmt_tag.format(text=line.text, url=line.slug)
-                fobj.write(txt)
+    tag_txt = get_template("project.tag.txt")
+    release_md = get_template("project.release.md")
 
     for project in projects.values():
         if project.path_with_namespace in IGNORE_MR_PROJECTS:
             continue
         bind_contextvars(project=project.path_with_namespace, project_id=project.id)
-        release = io.StringIO()
-        tag = io.StringIO()
-        tag.write(f"Release {tag_name}\n\n")
-        release.write(f"Release {tag_name}\n")
-        release.write("\n")
-        release.write(f"Milestone: {milestone.web_url} \n\n")
         changelog = make_changelog(changes[project.id])
 
-        make_text(changelog, tag, release=False)
-        make_text(changelog, release, release=True)
-
-        tag_message = tag.getvalue()
-        release_message = release.getvalue()
-
-        tag.close()
-        release.close()
-        del tag, release
+        tag_message = tag_txt.render(tag_name=tag_name, changes=changelog)
+        release_message = release_md.render(
+            milestone=milestone, tag_name=tag_name, changes=changelog
+        )
 
         proj_name = project.path_with_namespace
         tag_prefs = {"tag_name": tag_name, "message": tag_message, "ref": "master"}
