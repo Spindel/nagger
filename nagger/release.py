@@ -66,6 +66,23 @@ class ChangeLog:
         return cls(text=mr.title, slug=f"{slug}", web_url=mr.web_url, labels=mr.labels)
 
 
+@dataclass(order=True)
+class ProjectChangelog:
+    """Project and its changelog"""
+    name: str
+    changes: List[ChangeLog]
+
+    @property
+    def internal(self) -> List[ChangeLog]:
+        result = [x for x in self.changes if x.exposed == Exposed.Internal]
+        return result
+
+    @property
+    def external(self) -> List[ChangeLog]:
+        result = [x for x in self.changes if x.exposed == Exposed.External]
+        return result
+
+
 def present_kind(val: Kind):
     if val == Kind.Feature:
         return "New features"
@@ -171,8 +188,9 @@ def make_changelog(merge_requests):
     return sorted(result)
 
 
-def milestone_changelog(gl, milestone_name):
-    """Stomps all over a milestone"""
+
+def make_milestone_changelog(gl, milestone_name) -> List[ProjectChangelog]:
+    """Grabs all MR for a milestone, returning a Dict mapping to changelogs"""
     milestone = get_milestone(gl, milestone_name)
     mrs = milestone.merge_requests()
     merged_mr = [m for m in mrs if m.state == "merged"]
@@ -186,36 +204,35 @@ def milestone_changelog(gl, milestone_name):
         changes.setdefault(mr.project_id, [])
         changes[mr.project_id].append(mr)
 
-    external = {}
-    internal = {}
+    result = []
     for project_id, merge_requests in changes.items():
         bind_contextvars(project_id=project_id, num_mrs=len(merge_requests))
+        project = projects[project_id]
 
         changelog = make_changelog(merge_requests)
-        project = projects[project_id]
-        proj_name = project.path_with_namespace
-        external[proj_name] = [l for l in changelog if l.exposed == Exposed.External]
-        internal[proj_name] = [l for l in changelog]
+        pcl = ProjectChangelog(name=project.path_with_namespace, changes=changelog)
+        result.append(pcl)
     unbind_contextvars("project_id", "num_mrs")
-    del projects, changes, project, changelog
+    return sorted(result)
 
-    # Data structure is now:
-    #  external["ModioAB/afase"] = [change, change....]
-    #  internal["ModioAB/afase"] = [change, change....]
 
-    # External changes are visually different from internal.
+
+def milestone_changelog(gl, milestone_name):
+    """Stomps all over a milestone"""
+    all_changes = make_milestone_changelog(gl, milestone_name)
+
     external_md = get_template("external.md")
     print("--8<--" * 10 + "\n")
-    for proj_name, changes in external.items():
-        templated = external_md.render(project=proj_name, changes=changes)
+    for proj in all_changes:
+        templated = external_md.render(project=proj.name, changes=proj.external)
         print(templated)
     print("-->8--" * 10 + "\n")
 
     # Internal changes are more concise
     print("# Internal only changes\n")
     internal_md = get_template("internal.md")
-    for proj_name, changes in internal.items():
-        templated = internal_md.render(project=proj_name, changes=changes)
+    for proj in all_changes:
+        templated = internal_md.render(project=proj.name, changes=proj.changes)
         print(templated)
     # End internal changes
 
@@ -290,12 +307,8 @@ def milestone_release(gl, tag_name, dry_run):
     merged_mrs = [m for m in mrs if m.state == "merged"]
 
     projects = projects_from_mrs(gl, merged_mrs)
-    # Fill up with our "ALWAYS CREATE PROJECT"
-    for name in RELEASE_PROJECTS:
-        _log.info("Looking up id for", project_name=name)
-        proj = gl.projects.get(name)
-        projects[proj.id] = proj
-    del name, proj
+    for proj_id, proj in projects_from_list(gl).items():
+        projects[proj_id] = proj
 
     changes = {}
     for project_id in projects:
