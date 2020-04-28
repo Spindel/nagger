@@ -19,6 +19,7 @@ requirements = [
     "colorama",
     "python-dateutil",
     "click >= 7.1",
+    "Jinja2",
 ]
 
 setup_requirements = []
