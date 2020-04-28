@@ -13,6 +13,8 @@ from structlog import get_logger
 from .logs import log_state
 from structlog.contextvars import bind_contextvars, unbind_contextvars
 
+from jinja2 import Environment, PackageLoader
+
 from . import GROUP_NAME, RELEASE_PROJECTS, IGNORE_MR_PROJECTS
 
 _log = get_logger("nagger")
@@ -79,6 +81,17 @@ def get_milestone(gl, milestone_name):
     milestone = next(our_ms)
     bind_contextvars(milestone_id=milestone.id)
     return milestone
+
+
+def get_template(template_name: str):
+    environment = Environment(
+        loader=PackageLoader("nagger", "templates"),
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+    environment.filters["present_kind"] = present_kind
+    environment.globals["Kind"] = Kind
+    return environment.get_template(template_name)
 
 
 def is_version(name):
@@ -185,43 +198,20 @@ def milestone_changelog(gl, milestone_name):
     #  internal["ModioAB/afase"] = [change, change....]
 
     # External changes are visually different from internal.
-    result = io.StringIO()
-    for proj_name, changes in external.items():
-        if not changes:
-            continue
-        header = f"## {proj_name}\n"
-        result.write(header + "\n")
-
-        for kind in Kind:
-            subheader = f"{present_kind(kind)}: \n"
-            lines = (l for l in changes if l.kind == kind)
-            rows = [f"* {row.text}\n" for row in lines]
-            if rows:
-                result.write(subheader)
-                result.writelines(rows)
-                result.write("\n")
-
-        result.write("\n\n")
-
-    # Done, print it out (or save, or something)
+    external_md = get_template("external.md")
     print("--8<--" * 10 + "\n")
-    print(result.getvalue())
-    result.close()
+    for proj_name, changes in external.items():
+        templated = external_md.render(project=proj_name, changes=changes)
+        print(templated)
     print("-->8--" * 10 + "\n")
 
     # Internal changes are more concise
-    result = io.StringIO()
-    for proj_name, changes in internal.items():
-        if not changes:
-            continue
-        result.write(f"## {proj_name}\n\n")
-        for c in changes:
-            result.write(f"* {c.kind.name}: {c.text}\n")
-        result.write("\n")
-    # End internal changes
-
     print("# Internal only changes\n")
-    print(result.getvalue())
+    internal_md = get_template("internal.md")
+    for proj_name, changes in internal.items():
+        templated = internal_md.render(project=proj_name, changes=changes)
+        print(templated)
+    # End internal changes
 
 
 def milestone_fixup(gl, milestone_name, pretend=False):

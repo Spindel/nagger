@@ -1,0 +1,8 @@
+{% if changes %}
+## {{ project | title }}
+
+{% for change in changes %}
+* {{ change.kind.name }}: {{ change.text }}
+{% endfor %}
+
+{% endif %}
