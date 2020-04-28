@@ -94,6 +94,19 @@ def changelog(milestone):
 
 @milestone.command()
 @click.option("-n", "--dry-run", is_flag=True)
+@click.argument("tag-name")
+def changelog_homepage(dry_run, tag_name):
+    """Export this changelog to the homepage."""
+    setup_logging()
+    try:
+        gl = get_env_gitlab()
+    except NoToken:
+        gl = get_oauth_gitlab()
+    release.changelog_homepage(gl, tag_name, dry_run)
+
+
+@milestone.command()
+@click.option("-n", "--dry-run", is_flag=True)
 @click.argument("milestone", required=False)
 @click.pass_context
 def fixup(ctx, dry_run, milestone):

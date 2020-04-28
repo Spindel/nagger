@@ -2,7 +2,7 @@
 """Simple CI helper to remind people to set milestones"""
 from enum import IntEnum
 from dataclasses import dataclass
-from datetime import timezone
+from datetime import timezone, datetime
 from typing import List
 
 from dateutil.parser import isoparse
@@ -69,6 +69,7 @@ class ChangeLog:
 @dataclass(order=True)
 class ProjectChangelog:
     """Project and its changelog"""
+
     name: str
     changes: List[ChangeLog]
 
@@ -102,11 +103,13 @@ def get_milestone(gl, milestone_name):
     bind_contextvars(milestone_id=milestone.id)
     return milestone
 
+
 def labels_to_md(labels: List[str]):
     """Convert a list of labels to GitLab markdown labels"""
     prefixed = (f"~{label}" for label in labels)
     result = " ".join(prefixed)
     return result
+
 
 def get_template(template_name: str):
     environment = Environment(
@@ -188,7 +191,6 @@ def make_changelog(merge_requests):
     return sorted(result)
 
 
-
 def make_milestone_changelog(gl, milestone_name) -> List[ProjectChangelog]:
     """Grabs all MR for a milestone, returning a Dict mapping to changelogs"""
     milestone = get_milestone(gl, milestone_name)
@@ -214,7 +216,6 @@ def make_milestone_changelog(gl, milestone_name) -> List[ProjectChangelog]:
         result.append(pcl)
     unbind_contextvars("project_id", "num_mrs")
     return sorted(result)
-
 
 
 def milestone_changelog(gl, milestone_name):
@@ -374,3 +375,26 @@ def milestone_release(gl, tag_name, dry_run):
         unbind_contextvars(*release_prefs)
         unbind_contextvars(*tag_prefs)
     unbind_contextvars("project", "project_id")
+
+
+WWW_PROJECT = "ModioAB/modio.se"
+def changelog_homepage(gl, milestone_name, dry_run=True, www_project=WWW_PROJECT):
+    all_changes = make_milestone_changelog(gl, milestone_name)
+    homepage_md = get_template("homepage.md")
+
+    bind_contextvars(www_project=www_project, milestone_name=milestone_name)
+    project = gl.projects.get(www_project)
+    # here we hope we have a branch
+    date = datetime.today().strftime("%Y-%m-%d")
+    commit_message = "Nagger generated release notes"
+    file_path = f"content/news/release-{milestone_name}.md"
+    author = f"{gl.user.name}"
+
+    content = homepage_md.render(
+        milestone_name=milestone_name, author=author, date=date, projects=all_changes
+    )
+    if dry_run:
+        print("DRY RUN:", file_path)
+        print(content)
+    return
+
