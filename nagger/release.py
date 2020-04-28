@@ -2,8 +2,8 @@
 """Simple CI helper to remind people to set milestones"""
 from enum import IntEnum
 from dataclasses import dataclass
-
 from datetime import timezone
+from typing import List
 
 from dateutil.parser import isoparse
 
@@ -39,10 +39,31 @@ class Exposed(IntEnum):
 class ChangeLog:
     """Tracking a changelog line"""
 
-    kind: Kind
-    exposed: Exposed
-    text: str
     slug: str
+    text: str
+    web_url: str
+    labels: List[str]
+
+    @property
+    def kind(self) -> Kind:
+        if "Feature" in self.labels:
+            return Kind.Feature
+        if "Bug" in self.labels:
+            return Kind.Bug
+        return Kind.misc
+
+    @property
+    def exposed(self) -> Exposed:
+        """Returns the exposed state of a merge requests"""
+        labels = {x.lower() for x in self.labels}
+        if "internal" in labels:
+            return Exposed.Internal
+        return Exposed.External
+
+    @classmethod
+    def from_mr(cls, mr):
+        slug = mr.references["full"]
+        return cls(text=mr.title, slug=f"{slug}", web_url=mr.web_url, labels=mr.labels)
 
 
 def present_kind(val: Kind):
@@ -53,22 +74,6 @@ def present_kind(val: Kind):
     if val == Kind.misc:
         return "Misc changes"
     return "XXX: "
-
-
-def get_kind(mr):
-    """Returns a kind based on the labels"""
-    if "Feature" in mr.labels:
-        return Kind.Feature
-    if "Bug" in mr.labels:
-        return Kind.Bug
-    return Kind.misc
-
-
-def get_exposed(mr):
-    """Returns the exposed state of a merge requests"""
-    if "Internal" in mr.labels:
-        return Exposed.Internal
-    return Exposed.External
 
 
 def get_milestone(gl, milestone_name):
@@ -155,10 +160,7 @@ def make_changelog(merge_requests):
     """Returns a list of ChangeLog items"""
     result = []
     for mr in merge_requests:
-        kind = get_kind(mr)
-        exposed = get_exposed(mr)
-        slug = mr.references["full"]
-        line = ChangeLog(kind, exposed, mr.title, f"{slug}")
+        line = ChangeLog.from_mr(mr)
         result.append(line)
     return sorted(result)
 
