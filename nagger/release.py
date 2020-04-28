@@ -378,7 +378,36 @@ def milestone_release(gl, tag_name, dry_run):
 
 
 WWW_PROJECT = "ModioAB/modio.se"
+
+
+def ensure_file_content(project, branch, file_path, content, message):
+    from . import gitlab_file_exists
+
+    bind_contextvars(
+        file_name=file_path, branch=branch, project=project.path_with_namespace
+    )
+    _log.info("Testing if file exists")
+    file = gitlab_file_exists(project, file_path, branch)
+    if file:
+        _log.info("Updating file")
+        file.content = content
+        file.save(branch=branch, commit_message=message)
+        return
+    fobj = {
+        "file_path": file_path,
+        "branch": branch,
+        "commit_message": message,
+        "content": content,
+    }
+    _log.info("Creating file")
+    _log.debug("Creating file", **fobj)
+    project.files.create(fobj)
+    return
+
+
 def changelog_homepage(gl, milestone_name, dry_run=True, www_project=WWW_PROJECT):
+    from .ensure import ensure_mr
+
     all_changes = make_milestone_changelog(gl, milestone_name)
     homepage_md = get_template("homepage.md")
 
@@ -396,5 +425,14 @@ def changelog_homepage(gl, milestone_name, dry_run=True, www_project=WWW_PROJECT
     if dry_run:
         print("DRY RUN:", file_path)
         print(content)
-    return
+        return
 
+    mr = ensure_mr(project, milestone_name)
+    ensure_file_content(
+        project=project,
+        branch=mr.source_branch,
+        file_path=file_path,
+        content=content,
+        message=commit_message,
+    )
+    _log.info("Homepage article updated")

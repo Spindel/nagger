@@ -79,3 +79,13 @@ def get_oauth_gitlab():
     bind_contextvars(API_USER=gl.user.username)
     _log.msg("oauth session")
     return gl
+
+
+def gitlab_file_exists(project, file_path, branch="master"):
+    """Ensure a file exists in the path for the project"""
+    from gitlab.exceptions import GitlabGetError
+
+    try:
+        return project.files.get(file_path=file_path, ref=branch)
+    except GitlabGetError:
+        return None
