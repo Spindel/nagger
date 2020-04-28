@@ -380,39 +380,16 @@ def milestone_release(gl, tag_name, dry_run):
 WWW_PROJECT = "ModioAB/modio.se"
 
 
-def ensure_file_content(project, branch, file_path, content, message):
-    from . import gitlab_file_exists
-
-    bind_contextvars(
-        file_name=file_path, branch=branch, project=project.path_with_namespace
-    )
-    _log.info("Testing if file exists")
-    file = gitlab_file_exists(project, file_path, branch)
-    if file:
-        _log.info("Updating file")
-        file.content = content
-        file.save(branch=branch, commit_message=message)
-        return
-    fobj = {
-        "file_path": file_path,
-        "branch": branch,
-        "commit_message": message,
-        "content": content,
-    }
-    _log.info("Creating file")
-    _log.debug("Creating file", **fobj)
-    project.files.create(fobj)
-    return
-
-
 def changelog_homepage(gl, milestone_name, dry_run=True, www_project=WWW_PROJECT):
     from .ensure import ensure_mr
-
-    all_changes = make_milestone_changelog(gl, milestone_name)
-    homepage_md = get_template("homepage.md")
+    from .ensure import ensure_file_content
 
     bind_contextvars(www_project=www_project, milestone_name=milestone_name)
-    project = gl.projects.get(www_project)
+
+    all_changes = make_milestone_changelog(gl, milestone_name)
+    all_changes = resort_changes(all_changes)
+    homepage_md = get_template("homepage.md")
+
     # here we hope we have a branch
     date = datetime.today().strftime("%Y-%m-%d")
     commit_message = "Nagger generated release notes"
@@ -422,6 +399,7 @@ def changelog_homepage(gl, milestone_name, dry_run=True, www_project=WWW_PROJECT
     content = homepage_md.render(
         milestone_name=milestone_name, author=author, date=date, projects=all_changes
     )
+    project = gl.projects.get(www_project)
     if dry_run:
         print("DRY RUN:", file_path)
         print(content)
@@ -440,13 +418,34 @@ def changelog_homepage(gl, milestone_name, dry_run=True, www_project=WWW_PROJECT
 
 WIKI_PROJECT = "ModioAB/agile"
 
+IMPORTANT_PROJECTS = {
+    "ModioAB/afase",
+    "ModioAB/plagiation",
+    "ModioAB/submit",
+    "ModioAB/modio-api",
+    "ModioAB/mytemp-backend",
+}
+
+
+def resort_changes(changes: List[ProjectChangelog]) -> List[ProjectChangelog]:
+    """Morphs changes to list projects we care for first"""
+    offset = 0
+    for project in changes:
+        if project.name in IMPORTANT_PROJECTS:
+            changes.remove(project)
+            changes.insert(offset, project)
+            offset += 1
+    return changes
+
 
 def changelog_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
     title = f"Release-notes-{milestone_name}"
     bind_contextvars(wiki_project=wiki_project, milestone_name=milestone_name)
 
     all_changes = make_milestone_changelog(gl, milestone_name)
+    all_changes = resort_changes(all_changes)
     wiki_md = get_template("wiki.md")
+
     content = wiki_md.render(milestone_name=milestone_name, projects=all_changes)
 
     project = gl.projects.get(wiki_project)
