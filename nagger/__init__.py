@@ -13,10 +13,12 @@ _log = structlog.get_logger(__name__)
 GROUP_NAME = "ModioAB"
 DEFAULT_API_URL = "https://gitlab.com/"
 IGNORE_MR_PROJECTS = ["ModioAB/sysadmin", "ModioAB/clientconfig"]
+
 IGNORE_RELEASE_PROJECTS = [
-    "ModioAB/sysadmin",
-    "ModioAB/clientconfig",
-    "ModioAB/modbus_lookup",
+    "ModioAB/sysadmin",  # Does not follow a release cycle
+    "ModioAB/clientconfig",  # Does not follow a release cycle
+    "ModioAB/modbus_lookup",  # Has it's own release cycle
+    "ModioAB/snmp_lookup",  # Has it's own release cycle
 ]
 RELEASE_PROJECTS = [
     "ModioAB/afase",
