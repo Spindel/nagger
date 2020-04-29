@@ -1,0 +1,28 @@
+Release: {{ tag_name }}
+{% if changes %}
+	{% for kind in Kind %}
+		{% for change in changes | selectattr("kind", "equalto", kind.value) %}
+			{% if loop.first %}
+			{# Only write the header if we have content #}
+
+## {{ kind | present_kind | title }}:
+
+			{% endif %}
+			{% if change.slug %}
+* {{ change.slug }}: {{ change.text }}
+			{% else %}
+* {{ line.text }}
+			{% if loop.last %}
+			{# Add an whitespace line before next section #}
+
+			{% endif %}
+			{% endif %}
+		{% endfor %}
+		{% if loop.last %}
+		{# Add an whitespace line before next section #}
+
+		{% endif %}
+	{% endfor %}
+{% else %}
+No major changes
+{% endif %}

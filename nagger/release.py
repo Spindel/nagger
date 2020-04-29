@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Simple CI helper to remind people to set milestones"""
-import io
-
 from enum import IntEnum
 from dataclasses import dataclass
-
-from datetime import timezone
+from datetime import timezone, datetime
+from typing import List
 
 from dateutil.parser import isoparse
 
 from structlog import get_logger
 from .logs import log_state
 from structlog.contextvars import bind_contextvars, unbind_contextvars
+
+from jinja2 import Environment, PackageLoader
 
 from . import GROUP_NAME, RELEASE_PROJECTS, IGNORE_MR_PROJECTS
 
@@ -39,10 +39,49 @@ class Exposed(IntEnum):
 class ChangeLog:
     """Tracking a changelog line"""
 
-    kind: Kind
-    exposed: Exposed
-    text: str
     slug: str
+    text: str
+    web_url: str
+    labels: List[str]
+
+    @property
+    def kind(self) -> Kind:
+        if "Feature" in self.labels:
+            return Kind.Feature
+        if "Bug" in self.labels:
+            return Kind.Bug
+        return Kind.misc
+
+    @property
+    def exposed(self) -> Exposed:
+        """Returns the exposed state of a merge requests"""
+        labels = {x.lower() for x in self.labels}
+        if "internal" in labels:
+            return Exposed.Internal
+        return Exposed.External
+
+    @classmethod
+    def from_mr(cls, mr):
+        slug = mr.references["full"]
+        return cls(text=mr.title, slug=f"{slug}", web_url=mr.web_url, labels=mr.labels)
+
+
+@dataclass(order=True)
+class ProjectChangelog:
+    """Project and its changelog"""
+
+    name: str
+    changes: List[ChangeLog]
+
+    @property
+    def internal(self) -> List[ChangeLog]:
+        result = [x for x in self.changes if x.exposed == Exposed.Internal]
+        return result
+
+    @property
+    def external(self) -> List[ChangeLog]:
+        result = [x for x in self.changes if x.exposed == Exposed.External]
+        return result
 
 
 def present_kind(val: Kind):
@@ -55,22 +94,6 @@ def present_kind(val: Kind):
     return "XXX: "
 
 
-def get_kind(mr):
-    """Returns a kind based on the labels"""
-    if "Feature" in mr.labels:
-        return Kind.Feature
-    if "Bug" in mr.labels:
-        return Kind.Bug
-    return Kind.misc
-
-
-def get_exposed(mr):
-    """Returns the exposed state of a merge requests"""
-    if "Internal" in mr.labels:
-        return Exposed.Internal
-    return Exposed.External
-
-
 def get_milestone(gl, milestone_name):
     bind_contextvars(milestone_name=milestone_name, group_name=GROUP_NAME)
     group = gl.groups.get(GROUP_NAME)
@@ -79,6 +102,25 @@ def get_milestone(gl, milestone_name):
     milestone = next(our_ms)
     bind_contextvars(milestone_id=milestone.id)
     return milestone
+
+
+def labels_to_md(labels: List[str]):
+    """Convert a list of labels to GitLab markdown labels"""
+    prefixed = (f"~{label}" for label in labels)
+    result = " ".join(prefixed)
+    return result
+
+
+def get_template(template_name: str):
+    environment = Environment(
+        loader=PackageLoader("nagger", "templates"),
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+    environment.filters["present_kind"] = present_kind
+    environment.filters["labels2md"] = labels_to_md
+    environment.globals["Kind"] = Kind
+    return environment.get_template(template_name)
 
 
 def is_version(name):
@@ -144,16 +186,13 @@ def make_changelog(merge_requests):
     """Returns a list of ChangeLog items"""
     result = []
     for mr in merge_requests:
-        kind = get_kind(mr)
-        exposed = get_exposed(mr)
-        slug = mr.references["full"]
-        line = ChangeLog(kind, exposed, mr.title, f"{slug}")
+        line = ChangeLog.from_mr(mr)
         result.append(line)
     return sorted(result)
 
 
-def milestone_changelog(gl, milestone_name):
-    """Stomps all over a milestone"""
+def make_milestone_changelog(gl, milestone_name) -> List[ProjectChangelog]:
+    """Grabs all MR for a milestone, returning a Dict mapping to changelogs"""
     milestone = get_milestone(gl, milestone_name)
     mrs = milestone.merge_requests()
     merged_mr = [m for m in mrs if m.state == "merged"]
@@ -167,61 +206,36 @@ def milestone_changelog(gl, milestone_name):
         changes.setdefault(mr.project_id, [])
         changes[mr.project_id].append(mr)
 
-    external = {}
-    internal = {}
+    result = []
     for project_id, merge_requests in changes.items():
         bind_contextvars(project_id=project_id, num_mrs=len(merge_requests))
+        project = projects[project_id]
 
         changelog = make_changelog(merge_requests)
-        project = projects[project_id]
-        proj_name = project.path_with_namespace
-        external[proj_name] = [l for l in changelog if l.exposed == Exposed.External]
-        internal[proj_name] = [l for l in changelog]
+        pcl = ProjectChangelog(name=project.path_with_namespace, changes=changelog)
+        result.append(pcl)
     unbind_contextvars("project_id", "num_mrs")
-    del projects, changes, project, changelog
+    return sorted(result)
 
-    # Data structure is now:
-    #  external["ModioAB/afase"] = [change, change....]
-    #  internal["ModioAB/afase"] = [change, change....]
 
-    # External changes are visually different from internal.
-    result = io.StringIO()
-    for proj_name, changes in external.items():
-        if not changes:
-            continue
-        header = f"## {proj_name}\n"
-        result.write(header + "\n")
+def milestone_changelog(gl, milestone_name):
+    """Stomps all over a milestone"""
+    all_changes = make_milestone_changelog(gl, milestone_name)
 
-        for kind in Kind:
-            subheader = f"{present_kind(kind)}: \n"
-            lines = (l for l in changes if l.kind == kind)
-            rows = [f"* {row.text}\n" for row in lines]
-            if rows:
-                result.write(subheader)
-                result.writelines(rows)
-                result.write("\n")
-
-        result.write("\n\n")
-
-    # Done, print it out (or save, or something)
+    external_md = get_template("external.md")
     print("--8<--" * 10 + "\n")
-    print(result.getvalue())
-    result.close()
+    for proj in all_changes:
+        templated = external_md.render(project=proj.name, changes=proj.external)
+        print(templated)
     print("-->8--" * 10 + "\n")
 
     # Internal changes are more concise
-    result = io.StringIO()
-    for proj_name, changes in internal.items():
-        if not changes:
-            continue
-        result.write(f"## {proj_name}\n\n")
-        for c in changes:
-            result.write(f"* {c.kind.name}: {c.text}\n")
-        result.write("\n")
-    # End internal changes
-
     print("# Internal only changes\n")
-    print(result.getvalue())
+    internal_md = get_template("internal.md")
+    for proj in all_changes:
+        templated = internal_md.render(project=proj.name, changes=proj.changes)
+        print(templated)
+    # End internal changes
 
 
 def milestone_fixup(gl, milestone_name, pretend=False):
@@ -294,12 +308,8 @@ def milestone_release(gl, tag_name, dry_run):
     merged_mrs = [m for m in mrs if m.state == "merged"]
 
     projects = projects_from_mrs(gl, merged_mrs)
-    # Fill up with our "ALWAYS CREATE PROJECT"
-    for name in RELEASE_PROJECTS:
-        _log.info("Looking up id for", project_name=name)
-        proj = gl.projects.get(name)
-        projects[proj.id] = proj
-    del name, proj
+    for proj_id, proj in projects_from_list(gl).items():
+        projects[proj_id] = proj
 
     changes = {}
     for project_id in projects:
@@ -310,58 +320,19 @@ def milestone_release(gl, tag_name, dry_run):
         changes[mr.project_id].append(mr)
     del mr, merged_mrs
 
-    def make_text(incoming, fobj, release=True):
-        """Creates a text representation of a changelog"""
-        fmt_release = "* [{text}]({url}) \n"
-        fmt_tag = "* {url}: {text} \n"
-        fmt_nourl = "* {text} \n"
-
-        # Git internal tags just get plain text format issues
-        our_lines = [l for l in incoming]
-
-        if not our_lines:
-            fobj.write("\n")
-            fobj.write("No major changes")
-        return
-
-        for kind in Kind:
-            lines = [l for l in our_lines if l.kind == kind]
-            if not lines:
-                continue
-            fobj.write("\n")
-            fobj.write(f"## {present_kind(kind)}: \n\n")
-            for line in lines:
-                if not line.slug:
-                    txt = fmt_nourl.format(text=line.text)
-                # Release text formatting
-                elif release:
-                    txt = fmt_release.format(text=line.text, url=line.slug)
-                # tag text formatting
-                else:
-                    txt = fmt_tag.format(text=line.text, url=line.slug)
-                fobj.write(txt)
+    tag_txt = get_template("project.tag.txt")
+    release_md = get_template("project.release.md")
 
     for project in projects.values():
         if project.path_with_namespace in IGNORE_MR_PROJECTS:
             continue
         bind_contextvars(project=project.path_with_namespace, project_id=project.id)
-        release = io.StringIO()
-        tag = io.StringIO()
-        tag.write(f"Release {tag_name}\n\n")
-        release.write(f"Release {tag_name}\n")
-        release.write("\n")
-        release.write(f"Milestone: {milestone.web_url} \n\n")
         changelog = make_changelog(changes[project.id])
 
-        make_text(changelog, tag, release=False)
-        make_text(changelog, release, release=True)
-
-        tag_message = tag.getvalue()
-        release_message = release.getvalue()
-
-        tag.close()
-        release.close()
-        del tag, release
+        tag_message = tag_txt.render(tag_name=tag_name, changes=changelog)
+        release_message = release_md.render(
+            milestone=milestone, tag_name=tag_name, changes=changelog
+        )
 
         proj_name = project.path_with_namespace
         tag_prefs = {"tag_name": tag_name, "message": tag_message, "ref": "master"}
@@ -404,3 +375,100 @@ def milestone_release(gl, tag_name, dry_run):
         unbind_contextvars(*release_prefs)
         unbind_contextvars(*tag_prefs)
     unbind_contextvars("project", "project_id")
+
+
+WWW_PROJECT = "ModioAB/modio.se"
+
+
+def changelog_homepage(gl, milestone_name, dry_run=True, www_project=WWW_PROJECT):
+    from .ensure import ensure_mr
+    from .ensure import ensure_file_content
+
+    bind_contextvars(www_project=www_project, milestone_name=milestone_name)
+
+    all_changes = make_milestone_changelog(gl, milestone_name)
+    all_changes = resort_changes(all_changes)
+    homepage_md = get_template("homepage.md")
+
+    # here we hope we have a branch
+    date = datetime.today().strftime("%Y-%m-%d")
+    commit_message = "Nagger generated release notes"
+    file_path = f"content/news/release-{milestone_name}.md"
+    author = f"{gl.user.name}"
+
+    content = homepage_md.render(
+        milestone_name=milestone_name, author=author, date=date, projects=all_changes
+    )
+    project = gl.projects.get(www_project)
+    if dry_run:
+        print("DRY RUN:", file_path)
+        print(content)
+        return
+
+    mr = ensure_mr(project, milestone_name)
+    ensure_file_content(
+        project=project,
+        branch=mr.source_branch,
+        file_path=file_path,
+        content=content,
+        message=commit_message,
+    )
+    _log.info("Homepage article updated")
+
+
+WIKI_PROJECT = "ModioAB/agile"
+
+IMPORTANT_PROJECTS = {
+    "ModioAB/afase",
+    "ModioAB/plagiation",
+    "ModioAB/submit",
+    "ModioAB/modio-api",
+    "ModioAB/mytemp-backend",
+}
+
+
+def resort_changes(changes: List[ProjectChangelog]) -> List[ProjectChangelog]:
+    """Morphs changes to list projects we care for first"""
+    offset = 0
+    for project in changes:
+        if project.name in IMPORTANT_PROJECTS:
+            changes.remove(project)
+            changes.insert(offset, project)
+            offset += 1
+    return changes
+
+
+def changelog_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
+    title = f"Release-notes-{milestone_name}"
+    bind_contextvars(wiki_project=wiki_project, milestone_name=milestone_name)
+
+    all_changes = make_milestone_changelog(gl, milestone_name)
+    all_changes = resort_changes(all_changes)
+    wiki_md = get_template("wiki.md")
+
+    content = wiki_md.render(milestone_name=milestone_name, projects=all_changes)
+
+    project = gl.projects.get(wiki_project)
+    wikis = project.wikis
+    pages = wikis.list()
+    # if we use sane titles the slug will match title?
+    found_page = [p for p in pages if p.slug == title]
+    args = {
+        "title": title,
+        "content": content,
+    }
+    if dry_run:
+        print("DRY RUN", title)
+        print(content)
+        return
+
+    if not found_page:
+        _log.info("Creating page", **args)
+        wikis.create(args)
+    elif len(found_page) == 1:
+        _log.info("Updating page", **args)
+        page = wikis.get(found_page[0].slug)
+        page.content = content
+        page.save()
+    else:
+        _log.msg("Duplicate page title, ignoring.", title=title)

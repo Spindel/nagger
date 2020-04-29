@@ -95,6 +95,35 @@ def changelog(milestone):
 @milestone.command()
 @click.option("-n", "--dry-run", is_flag=True)
 @click.argument("milestone", required=False)
+def changelog_homepage(milestone, dry_run):
+    """Export this changelog to the homepage."""
+    setup_logging()
+    try:
+        gl = get_env_gitlab()
+    except NoToken:
+        gl = get_oauth_gitlab()
+
+    milestone = _prompt_milestone(gl, milestone)
+    release.changelog_homepage(gl, milestone, dry_run)
+
+
+@milestone.command()
+@click.option("-n", "--dry-run", is_flag=True)
+@click.argument("milestone", required=False)
+def changelog_wiki(milestone, dry_run):
+    """Export this changelog to the homepage."""
+    setup_logging()
+    try:
+        gl = get_env_gitlab()
+    except NoToken:
+        gl = get_oauth_gitlab()
+    milestone = _prompt_milestone(gl, milestone)
+    release.changelog_wiki(gl, milestone, dry_run)
+
+
+@milestone.command()
+@click.option("-n", "--dry-run", is_flag=True)
+@click.argument("milestone", required=False)
 @click.pass_context
 def fixup(ctx, dry_run, milestone):
     """Stomp all over the milestone and attempt to fix Merge requests and
