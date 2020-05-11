@@ -124,6 +124,20 @@ def changelog_wiki(milestone, dry_run):
 @milestone.command()
 @click.option("-n", "--dry-run", is_flag=True)
 @click.argument("milestone", required=False)
+def milestone_wiki(milestone, dry_run):
+    """Generate mermaid milestone to wiki."""
+    setup_logging()
+    try:
+        gl = get_env_gitlab()
+    except NoToken:
+        gl = get_oauth_gitlab()
+    milestone = _prompt_milestone(gl, milestone)
+    release.milestone_wiki(gl, milestone, dry_run)
+
+
+@milestone.command()
+@click.option("-n", "--dry-run", is_flag=True)
+@click.argument("milestone", required=False)
 @click.pass_context
 def fixup(ctx, dry_run, milestone):
     """Stomp all over the milestone and attempt to fix Merge requests and

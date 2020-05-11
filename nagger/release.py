@@ -4,6 +4,7 @@ from enum import IntEnum
 from dataclasses import dataclass
 from datetime import timezone, datetime
 from typing import List
+from functools import lru_cache
 
 from dateutil.parser import isoparse
 
@@ -472,3 +473,101 @@ def changelog_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
         page.save()
     else:
         _log.msg("Duplicate page title, ignoring.", title=title)
+
+
+def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
+    bind_contextvars(wiki_project=wiki_project, milestone_name=milestone_name)
+    agile = gl.projects.get(wiki_project)
+    wikis = agile.wikis
+    mermaid_title = f"Milestone-{milestone_name}"
+    # prefer agile-project milestone
+    mss = agile.milestones.list(title=milestone_name, state="active", as_list=True)
+    if len(mss) > 0:
+        ms = mss[0]
+    else:
+        # fallback to group milestone
+        ms = get_milestone(gl, milestone_name)
+
+    parts = []
+    parts.append(f"## {ms.title} \n")
+    parts.append(f"{ms.description}\n")
+    mermaid = []
+    mermaid.append("```mermaid")
+    mermaid.append("graph LR;")
+    mermaid.append("classDef closed fill:#efe,stroke-width:4px;font-style:italic")
+    ul = []
+
+    @lru_cache(maxsize=None)
+    def loadIssue(project_id, issue_iid):
+        _log.debug("loadIssue", project=project_id, iid=issue_iid)
+        project = gl.projects.get(project_id)
+        return project.issues.get(issue_iid)
+
+    def mermaid_format(issue):
+        full_ref = issue.references["full"]
+        id = issue.id
+        title = issue.title.replace('"', "'")
+        ret = [f'{issue.id}["{title} {full_ref}"];']
+        if issue.state == "closed":
+            ret.append(f"class {id} {issue.state};")
+        return ret
+
+    def doIssues(issues, ul, mermaid, used, parent=None, indent=0):
+        for shallowIssue in issues:
+            if shallowIssue.id not in used:
+                issue = loadIssue(shallowIssue.project_id, shallowIssue.iid)
+                used.add(issue.id)
+                tasks = ""
+                if issue.has_tasks:
+                    task_stats = issue.task_completion_status
+                    tasks = f" ({task_stats['completed_count']}/{task_stats['count']})"
+                issue_link = issue.references["full"]
+                ul.append(f"{' ' * 2 * indent}* {issue.title} {issue_link}{tasks}")
+                if parent:
+                    mermaid.append(f"{parent.id}---{issue.id};")
+                    mermaid.extend(mermaid_format(parent))
+
+                mermaid.extend(mermaid_format(issue))
+                doIssues(
+                    issue.links.list(as_list=False),
+                    ul,
+                    mermaid,
+                    used,
+                    issue,
+                    indent + 1,
+                )
+
+    used = set()
+    doIssues(ms.issues(), ul, mermaid, used)
+
+    mermaid.append("```")
+    parts.extend(mermaid)
+    parts.append("---")
+    parts.extend(ul)
+    content = "\n".join(parts)
+
+    ensure_wiki_page_with_content(wikis, mermaid_title, content, dry_run)
+
+
+def ensure_wiki_page_with_content(wikis, title, content, dry_run=True):
+    from gitlab.exceptions import GitlabGetError
+
+    bind_contextvars(wiki_page_title=title)
+    page = None
+    try:
+        page = wikis.get(title)
+        _log.info("Will update wiki page")
+    except GitlabGetError:
+        _log.info("Will create wiki page")
+        pass
+
+    if dry_run:
+        _log.info("DRY run wiki page")
+        print(content)
+    else:
+        if not page:
+            wikis.create({"title": title, "content": content})
+        else:
+            page.content = content
+            page.save()
+        _log.msg("wiki page successfully upserted", content=content)
