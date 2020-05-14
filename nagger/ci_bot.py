@@ -221,9 +221,9 @@ def release_tag(gl):
     tagname = get_commit_tag()
 
     all_rels = project.releases.list()
-    for l in all_rels:
-        print(l)
-        print(vars(l))
+    for rel in all_rels:
+        print(rel)
+        print(vars(rel))
 
     try:
         release = project.releases.get(tagname)
