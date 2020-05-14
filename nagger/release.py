@@ -13,7 +13,7 @@ from structlog.contextvars import bind_contextvars, unbind_contextvars
 
 from jinja2 import Environment, PackageLoader
 
-from . import GROUP_NAME, RELEASE_PROJECTS, IGNORE_MR_PROJECTS
+from . import GROUP_NAME, RELEASE_PROJECTS, IGNORE_MR_PROJECTS, IGNORE_RELEASE_PROJECTS
 
 _log = get_logger("nagger")
 
@@ -324,7 +324,7 @@ def milestone_release(gl, tag_name, dry_run):
     release_md = get_template("project.release.md")
 
     for project in projects.values():
-        if project.path_with_namespace in IGNORE_MR_PROJECTS:
+        if project.path_with_namespace in IGNORE_RELEASE_PROJECTS:
             continue
         bind_contextvars(project=project.path_with_namespace, project_id=project.id)
         changelog = make_changelog(changes[project.id])

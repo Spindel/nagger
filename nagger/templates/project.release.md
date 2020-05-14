@@ -10,7 +10,7 @@ Milestone: {{ milestone.web_url }}
 
 			{% endif %}
 			{% if change.slug %}
-* [{{ change.text}}}]({{change.slug}})
+* [{{ change.text}}]({{change.slug}})
 			{% else %}
 * {{ line.text }}
 			{% endif %}
