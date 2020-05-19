@@ -521,8 +521,13 @@ def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
                 if issue.has_tasks:
                     task_stats = issue.task_completion_status
                     tasks = f" ({task_stats['completed_count']}/{task_stats['count']})"
+                emoji = ":black_medium_square:"
+                if issue.state == "closed":
+                    emoji = ":white_check_mark:"
                 issue_link = issue.references["full"]
-                ul.append(f"{' ' * 2 * indent}* {issue.title} {issue_link}{tasks}")
+                ul.append(
+                    f"{' ' * 2 * indent}* {emoji} {issue.title} {issue_link}{tasks}"
+                )
                 if parent:
                     mermaid.append(f"{parent.id}---{issue.id};")
                     mermaid.extend(mermaid_format(parent))
