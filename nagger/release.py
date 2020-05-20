@@ -99,9 +99,9 @@ def present_kind(val: Kind):
 def get_milestone(gl, milestone_name):
     bind_contextvars(milestone_name=milestone_name, group_name=GROUP_NAME)
     group = gl.groups.get(GROUP_NAME)
-    ms = group.milestones.list(all=True)
-    our_ms = (m for m in ms if m.title == milestone_name)
-    milestone = next(our_ms)
+    stones = group.milestones.list(title=milestone_name, as_list=True)
+    # let it crash if no stones found
+    milestone = stones[0]
     bind_contextvars(milestone_id=milestone.id)
     return milestone
 
