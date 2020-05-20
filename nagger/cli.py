@@ -96,7 +96,7 @@ def changelog(milestone):
 @click.option("-n", "--dry-run", is_flag=True)
 @click.argument("milestone", required=False)
 def changelog_homepage(milestone, dry_run):
-    """Export this changelog to the homepage."""
+    """Export non-internal changelog to the homepage."""
     setup_logging()
     try:
         gl = get_env_gitlab()
@@ -111,7 +111,7 @@ def changelog_homepage(milestone, dry_run):
 @click.option("-n", "--dry-run", is_flag=True)
 @click.argument("milestone", required=False)
 def changelog_wiki(milestone, dry_run):
-    """Export this changelog to the homepage."""
+    """Export complete changelog to the wiki."""
     setup_logging()
     try:
         gl = get_env_gitlab()
@@ -125,7 +125,10 @@ def changelog_wiki(milestone, dry_run):
 @click.option("-n", "--dry-run", is_flag=True)
 @click.argument("milestone", required=False)
 def milestone_wiki(milestone, dry_run):
-    """Generate mermaid milestone to wiki."""
+    """Generate milestone to wiki. Indented list and a Mermaid diagram
+
+    MILESTONE    is primary Agile and in second hand Group.
+    """
     setup_logging()
     try:
         gl = get_env_gitlab()
