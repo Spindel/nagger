@@ -3,18 +3,16 @@
 from enum import IntEnum
 from dataclasses import dataclass
 from datetime import timezone, datetime
-from typing import List
-from functools import lru_cache
-
-from dateutil.parser import isoparse
+from typing import List, Optional
 from urllib.parse import quote_plus
 
-from structlog import get_logger
-from .logs import log_state
-from structlog.contextvars import bind_contextvars, unbind_contextvars
+from dateutil.parser import isoparse
 
+from structlog import get_logger
+from structlog.contextvars import bind_contextvars, unbind_contextvars
 from jinja2 import Environment, PackageLoader
 
+from .logs import log_state
 from . import GROUP_NAME, RELEASE_PROJECTS, IGNORE_MR_PROJECTS, IGNORE_RELEASE_PROJECTS
 
 _log = get_logger("nagger")
@@ -86,6 +84,66 @@ class ProjectChangelog:
         return result
 
 
+@dataclass
+class Progress:
+    completed: int
+    total: int
+
+
+@dataclass
+class Issue:
+    """Issue for Mermaid representation"""
+
+    id: int
+    link: str
+    title: str
+    state: str
+    related: List["Issue"]
+    progress: Optional[Progress]
+    parent: Optional["Issue"]
+
+    @property
+    def closed(self) -> bool:
+        return self.state == "closed"
+
+    def __repr__(self):
+        return f"{self.link}"
+
+    @classmethod
+    def from_issue(cls, raw, parent=None):
+        progress = None
+        if raw.has_tasks:
+            task_stats = raw.task_completion_status
+            progress = Progress(
+                completed=task_stats["completed_count"], total=task_stats["count"],
+            )
+
+        # Start by creating it with an empty "related"
+        issue = cls(
+            id=raw.id,
+            title=raw.title.replace('"', "'"),
+            link=raw.references["full"],
+            state=raw.state,
+            progress=progress,
+            related=[],
+            parent=parent,
+        )
+        return issue
+
+
+def present_issue(issue: Issue):
+    if issue.closed:
+        emoji = ":white_check_mark:"
+    else:
+        emoji = ":black_medium_square:"
+
+    tasks = ""
+    if issue.progress is not None:
+        tasks = f"{issue.progress.completed}/{issue.progress.total}"
+
+    return f"{emoji} {issue.title} {issue.link} {tasks}"
+
+
 def present_kind(val: Kind):
     if val == Kind.Feature:
         return "New features"
@@ -120,6 +178,7 @@ def get_template(template_name: str):
         lstrip_blocks=True,
     )
     environment.filters["present_kind"] = present_kind
+    environment.filters["present_issue"] = present_issue
     environment.filters["labels2md"] = labels_to_md
     environment.globals["Kind"] = Kind
     return environment.get_template(template_name)
@@ -217,6 +276,47 @@ def make_milestone_changelog(gl, milestone) -> List[ProjectChangelog]:
         result.append(pcl)
     unbind_contextvars("project_id", "num_mrs")
     return sorted(result)
+
+
+def load_issues(gl, initial_issues) -> List[Issue]:
+    """Load a list of issues and populates them, recursively.
+
+    """
+    seen = set()
+
+    def load_issue(project_id, issue_iid, parent=None) -> Optional[Issue]:
+        if (project_id, issue_iid) in seen:
+            _log.debug(
+                "Already seen",
+                project_id=project_id,
+                issue_iid=issue_iid,
+                parent=parent,
+            )
+            return None
+
+        seen.add((project_id, issue_iid))
+
+        _log.debug(
+            "load_issue", project_id=project_id, issue_iid=issue_iid, parent=parent
+        )
+        project = gl.projects.get(project_id)
+        raw = project.issues.get(issue_iid)
+        issue = Issue.from_issue(raw, parent=parent)
+
+        # Recursively populate related items and append them to our related
+        children = raw.links.list(as_list=False)
+        for rel in children:
+            child = load_issue(rel.project_id, rel.iid, parent=issue)
+            if child is not None:
+                issue.related.append(child)
+        return issue
+
+    results = []
+    for obj in initial_issues:
+        val = load_issue(project_id=obj.project_id, issue_iid=obj.iid)
+        if val is not None:
+            results.append(val)
+    return results
 
 
 def milestone_changelog(gl, milestone_name):
@@ -465,70 +565,21 @@ def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
     else:
         # fallback to group milestone
         ms = get_milestone(gl, milestone_name)
+    initial_issues = [x for x in ms.issues()]
 
-    parts = []
-    parts.append(f"## [{ms.title}]({ms.web_url}) \n")
-    parts.append(f"{ms.description}\n")
-    mermaid = []
-    mermaid.append("```mermaid")
-    mermaid.append("graph LR;")
-    mermaid.append("classDef closed fill:#efe,stroke-width:4px;font-style:italic")
-    ul = []
+    # Load and populate a tree of issues
+    issues = load_issues(gl, initial_issues)
 
-    @lru_cache(maxsize=None)
-    def loadIssue(project_id, issue_iid):
-        _log.debug("loadIssue", project=project_id, iid=issue_iid)
-        project = gl.projects.get(project_id)
-        return project.issues.get(issue_iid)
+    # Load our template and render it
+    issue_md = get_template("issue_tree.md")
+    issue_content = issue_md.render(milestone=ms, issues=issues)
 
-    def mermaid_format(issue):
-        full_ref = issue.references["full"]
-        id = issue.id
-        title = issue.title.replace('"', "'")
-        ret = [f'{issue.id}["{title} {full_ref}"];']
-        if issue.state == "closed":
-            ret.append(f"class {id} {issue.state};")
-        return ret
+    # Load our Mermaid chart and render it
+    mermaid_md = get_template("mermaid_chart.md")
+    mermaid_content = mermaid_md.render(issues=issues)
 
-    def doIssues(issues, ul, mermaid, used, parent=None, indent=0):
-        for shallowIssue in issues:
-            if shallowIssue.id not in used:
-                issue = loadIssue(shallowIssue.project_id, shallowIssue.iid)
-                used.add(issue.id)
-                tasks = ""
-                if issue.has_tasks:
-                    task_stats = issue.task_completion_status
-                    tasks = f" ({task_stats['completed_count']}/{task_stats['count']})"
-                emoji = ":black_medium_square:"
-                if issue.state == "closed":
-                    emoji = ":white_check_mark:"
-                issue_link = issue.references["full"]
-                ul.append(
-                    f"{' ' * 2 * indent}* {emoji} {issue.title} {issue_link}{tasks}"
-                )
-                if parent:
-                    mermaid.append(f"{parent.id}---{issue.id};")
-                    mermaid.extend(mermaid_format(parent))
-
-                mermaid.extend(mermaid_format(issue))
-                doIssues(
-                    issue.links.list(as_list=False),
-                    ul,
-                    mermaid,
-                    used,
-                    issue,
-                    indent + 1,
-                )
-
-    used = set()
-    doIssues(ms.issues(), ul, mermaid, used)
-
-    mermaid.append("```")
-    parts.extend(ul)
-    parts.append("---")
-    parts.extend(mermaid)
-    content = "\n".join(parts)
-
+    # Join them together with a HR
+    content = "\n".join((issue_content, "", "---", "", mermaid_content))
     ensure_wiki_page_with_content(wikis, mermaid_title, content, dry_run)
 
 
