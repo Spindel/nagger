@@ -7,6 +7,7 @@ from typing import List
 from functools import lru_cache
 
 from dateutil.parser import isoparse
+from urllib.parse import quote_plus
 
 from structlog import get_logger
 from .logs import log_state
@@ -550,6 +551,7 @@ def ensure_wiki_page_with_content(wikis, title, content, dry_run=True):
         if not page:
             wikis.create({"title": title, "content": content})
         else:
-            page.content = content
-            page.save()
+            # page.save() does not url-encode slashes properly
+            # so this is a workaround:
+            wikis.update(quote_plus(page.slug), {"title": title, "content": content})
         _log.msg("wiki page successfully upserted", content=content)
