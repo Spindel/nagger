@@ -192,9 +192,8 @@ def make_changelog(merge_requests):
     return sorted(result)
 
 
-def make_milestone_changelog(gl, milestone_name) -> List[ProjectChangelog]:
+def make_milestone_changelog(gl, milestone) -> List[ProjectChangelog]:
     """Grabs all MR for a milestone, returning a Dict mapping to changelogs"""
-    milestone = get_milestone(gl, milestone_name)
     mrs = milestone.merge_requests()
     merged_mr = [m for m in mrs if m.state == "merged"]
 
@@ -440,46 +439,24 @@ def resort_changes(changes: List[ProjectChangelog]) -> List[ProjectChangelog]:
 
 
 def changelog_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
-    title = f"Release-notes-{milestone_name}"
+    milestone = get_milestone(gl, milestone_name)
+    title = f"Release notes/{milestone_name}"
     bind_contextvars(wiki_project=wiki_project, milestone_name=milestone_name)
 
-    all_changes = make_milestone_changelog(gl, milestone_name)
+    all_changes = make_milestone_changelog(gl, milestone)
     all_changes = resort_changes(all_changes)
     wiki_md = get_template("wiki.md")
-
-    content = wiki_md.render(milestone_name=milestone_name, projects=all_changes)
+    content = wiki_md.render(milestone=milestone, projects=all_changes)
 
     project = gl.projects.get(wiki_project)
-    wikis = project.wikis
-    pages = wikis.list()
-    # if we use sane titles the slug will match title?
-    found_page = [p for p in pages if p.slug == title]
-    args = {
-        "title": title,
-        "content": content,
-    }
-    if dry_run:
-        print("DRY RUN", title)
-        print(content)
-        return
-
-    if not found_page:
-        _log.info("Creating page", **args)
-        wikis.create(args)
-    elif len(found_page) == 1:
-        _log.info("Updating page", **args)
-        page = wikis.get(found_page[0].slug)
-        page.content = content
-        page.save()
-    else:
-        _log.msg("Duplicate page title, ignoring.", title=title)
+    ensure_wiki_page_with_content(project.wikis, title, content, dry_run)
 
 
 def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
     bind_contextvars(wiki_project=wiki_project, milestone_name=milestone_name)
     agile = gl.projects.get(wiki_project)
     wikis = agile.wikis
-    mermaid_title = f"Milestone-{milestone_name}"
+    mermaid_title = f"Milestones/{milestone_name}"
     # prefer agile-project milestone
     mss = agile.milestones.list(title=milestone_name, state="active", as_list=True)
     if len(mss) > 0:
@@ -489,7 +466,7 @@ def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
         ms = get_milestone(gl, milestone_name)
 
     parts = []
-    parts.append(f"## {ms.title} \n")
+    parts.append(f"## [{ms.title}]({ms.web_url}) \n")
     parts.append(f"{ms.description}\n")
     mermaid = []
     mermaid.append("```mermaid")
