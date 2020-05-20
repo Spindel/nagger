@@ -1,6 +1,8 @@
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars
 
+from urllib.parse import quote_plus
+
 _log = get_logger(__name__)
 
 
@@ -77,3 +79,28 @@ def ensure_file_content(project, branch, file_path, content, message):
     _log.debug("Creating file", **fobj)
     project.files.create(fobj)
     return
+
+
+def ensure_wiki_page_with_content(wikis, title, content, dry_run=True):
+    from gitlab.exceptions import GitlabGetError
+
+    bind_contextvars(wiki_page_title=title)
+    page = None
+    try:
+        page = wikis.get(title)
+        _log.info("Will update wiki page")
+    except GitlabGetError:
+        _log.info("Will create wiki page")
+        pass
+
+    if dry_run:
+        _log.info("DRY run wiki page")
+        print(content)
+    else:
+        if not page:
+            wikis.create({"title": title, "content": content})
+        else:
+            # page.save() does not url-encode slashes properly
+            # so this is a workaround:
+            wikis.update(quote_plus(page.slug), {"title": title, "content": content})
+        _log.msg("wiki page successfully upserted", content=content)

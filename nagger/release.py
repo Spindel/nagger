@@ -544,7 +544,9 @@ def resort_changes(changes: List[ProjectChangelog]) -> List[ProjectChangelog]:
     return changes
 
 
-def changelog_wiki(gl, milestone_name, dry_run=True, wiki_project_name=WIKI_PROJECT):
+def changelog_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
+    from .ensure import ensure_wiki_page_with_content
+
     milestone = get_milestone(gl, milestone_name)
     title = f"Release notes/{milestone_name}"
 
@@ -556,8 +558,12 @@ def changelog_wiki(gl, milestone_name, dry_run=True, wiki_project_name=WIKI_PROJ
     ensure_wiki_page_with_content(gl, wiki_project_name, title, content, dry_run)
 
 
-def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project_name=WIKI_PROJECT):
-    bind_contextvars(milestone_name=milestone_name)  # Normally done in get_milestone.
+def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
+    from .ensure import ensure_wiki_page_with_content
+
+    bind_contextvars(wiki_project=wiki_project, milestone_name=milestone_name)
+    agile = gl.projects.get(wiki_project)
+    wikis = agile.wikis
     mermaid_title = f"Milestones/{milestone_name}"
 
     # prefer wiki_project-project milestone
