@@ -524,9 +524,9 @@ def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
     doIssues(ms.issues(), ul, mermaid, used)
 
     mermaid.append("```")
-    parts.extend(mermaid)
-    parts.append("---")
     parts.extend(ul)
+    parts.append("---")
+    parts.extend(mermaid)
     content = "\n".join(parts)
 
     ensure_wiki_page_with_content(wikis, mermaid_title, content, dry_run)
