@@ -100,7 +100,7 @@ def get_milestone(gl, milestone_name):
     bind_contextvars(milestone_name=milestone_name, group_name=GROUP_NAME)
     group = gl.groups.get(GROUP_NAME)
     ms = group.milestones.list(all=True)
-    our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
+    our_ms = (m for m in ms if m.title == milestone_name)
     milestone = next(our_ms)
     bind_contextvars(milestone_id=milestone.id)
     return milestone
