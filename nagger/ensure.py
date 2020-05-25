@@ -16,11 +16,10 @@ def gitlab_file_exists(project, file_path, branch="master"):
         return None
 
 
-def ensure_branch(project, branch_name):
+def ensure_branch(project, branch_name, dry_run=True):
     """Make sure a branch named "branch_name" exists in the project"""
-    branches = project.branches.list()
-    found_branches = [br for br in branches if br.name == branch_name]
-    if found_branches:
+    found_branches = project.branches.list(search=branch_name)
+    if len(found_branches) > 0:
         _log.info(
             "Found branch", branch_name=branch_name, branch_total=len(found_branches)
         )
@@ -31,19 +30,21 @@ def ensure_branch(project, branch_name):
         "ref": "master",
     }
     _log.info("Creating new branch", **branch_obj)
+    if dry_run:
+        _log.info("DRY-RUN")
+        return project.branches.get(-1, lazy=True) # just to return a mock Branch.
     branch = project.branches.create(branch_obj)
     return branch
 
 
-def ensure_mr(project, mr_title):
+def ensure_mr(project, mr_title, dry_run=True):
     """Make sure an MR named mr_title  exists in the project"""
-    mrs = project.mergerequests.list()
-    found_mrs = [m for m in mrs if m.title == mr_title]
-    if found_mrs:
+    found_mrs = project.mergerequests.list(search=mr_title)
+    if len(found_mrs) > 0:
         _log.info("Found mr", mr_title=mr_title, mr_total=len(found_mrs))
         return found_mrs[0]
 
-    branch = ensure_branch(project, mr_title)
+    branch = ensure_branch(project, mr_title, dry_run)
 
     mr_obj = {
         "title": mr_title,
@@ -53,11 +54,14 @@ def ensure_mr(project, mr_title):
     }
 
     _log.info("MR creating", **mr_obj)
+    if dry_run:
+        _log.info("DRY-RUN")
+        return project.mergerequests.get(-3, lazy=True) # mock MR
     mr = project.mergerequests.create(mr_obj)
     return mr
 
 
-def ensure_file_content(project, branch, file_path, content, message):
+def ensure_file_content(project, branch, file_path, content, message, dry_run=True):
 
     bind_contextvars(
         file_name=file_path, branch=branch, project=project.path_with_namespace
@@ -67,17 +71,22 @@ def ensure_file_content(project, branch, file_path, content, message):
     if file:
         _log.info("Updating file")
         file.content = content
+        if dry_run:
+            _log.debug("DRY-RUN: update ", branch, commit_message)
+            return
         file.save(branch=branch, commit_message=message)
         return
-    fobj = {
+    file_obj = {
         "file_path": file_path,
         "branch": branch,
         "commit_message": message,
         "content": content,
     }
     _log.info("Creating file")
-    _log.debug("Creating file", **fobj)
-    project.files.create(fobj)
+    if dry_run:
+        _log.debug("DRY-RUN: would create file", **file_obj)
+        return
+    project.files.create(file_obj)
     return
 
 
