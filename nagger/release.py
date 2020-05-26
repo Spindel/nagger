@@ -12,8 +12,13 @@ from structlog import get_logger
 from structlog.contextvars import bind_contextvars, unbind_contextvars
 from jinja2 import Environment, PackageLoader
 
-from .logs import log_state
-from . import GROUP_NAME, RELEASE_PROJECTS, IGNORE_MR_PROJECTS, IGNORE_RELEASE_PROJECTS
+from . import (
+    GROUP_NAME,
+    RELEASE_PROJECTS,
+    IGNORE_MR_PROJECTS,
+    IGNORE_RELEASE_PROJECTS,
+    MODBUS_LOOKUP,
+)
 
 _log = get_logger("nagger")
 
@@ -511,13 +516,9 @@ def changelog_homepage(gl, milestone_name, dry_run=True, www_project=WWW_PROJECT
         print(content)
         return
 
-    mr = ensure_mr(project, milestone_name)
+    mr = ensure_mr(project, milestone_name, dry_run)
     ensure_file_content(
-        project=project,
-        branch=mr.source_branch,
-        file_path=file_path,
-        content=content,
-        message=commit_message,
+        project, mr.source_branch, file_path, content, commit_message, dry_run,
     )
     _log.info("Homepage article updated")
 
@@ -599,32 +600,62 @@ def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
         gl, wiki_project_name, mermaid_title, content, dry_run
     )
 
+def modbus_release(gl, tag_name, milestone_name, ref, dry_run):
+    from .ensure import ensure_mr, ensure_tag
 
-def ensure_wiki_page_with_content(gl, wiki_project_name, title, content, dry_run=True):
-    from gitlab.exceptions import GitlabGetError
+    project = gl.projects.get(MODBUS_LOOKUP)
+    tag = ensure_tag(project, tag_name, ref, dry_run)
 
-    bind_contextvars(wiki_project_name=wiki_project_name, wiki_title=title)
-    wiki_project = gl.projects.get(wiki_project_name)
-    wikis = wiki_project.wikis
+    mr_title = f"Bump modbus_lookup to {tag_name}"
+    milestone = get_milestone(gl, milestone_name)
 
-    bind_contextvars(wiki_page_title=title)
-    slug = page = None
-    try:
-        page = wikis.get(title)
-        slug = quote_plus(page.slug)
-        bind_contextvars(action="Update page", slug=slug)
-    except GitlabGetError:
-        bind_contextvars(action="Create new")
+    # TODO afase is similar
+    # mytemp-backend has only firmware/requirements-internal.txt
 
-    if dry_run:
-        _log.info("DRY run wiki page")
-        print(content)
-        return
+    # submit:
+    submit = gl.projects.get("ModioAB/submit")
+    mr = ensure_mr(submit, mr_title, dry_run)
+    mr.milestone = milestone
+    modbus_bump_tag(
+        submit,
+        "requirements-internal.txt",
+        "(^git\+ssh://git@gitlab\.com/ModioAB/modbus_lookup\.git@)(.+?)(#egg=modbus_lookup)",
+        mr,
+        dry_run,
+    )
+    modbus_bump_tag(
+        submit, "requirements-modio.txt", "(^modbus_lookup >= )(.+?)($)", mr, dry_run,
+    )
 
-    if page is None:
-        wikis.create({"title": title, "content": content})
-    else:
-        # page.save() does not url-encode slashes properly
-        # so this is a workaround:
-        wikis.update(slug, {"title": title, "content": content})
-    _log.msg("wiki page successfully upserted")
+    # clientconfig has only requirements-internal.txt and uses master intentionally
+    """Example:
+    - git+ssh://git@gitlab.com/ModioAB/modbus_lookup.git@master#egg=modbus_lookup >= 3.6.0
+    + git+ssh://git@gitlab.com/ModioAB/modbus_lookup.git@master#egg=modbus_lookup >= 3.9.0
+    """
+
+
+def modbus_bump_tag(project, file_path, match, mr, dry_run):
+    import re
+    from .ensure import ensure_file_content
+
+    _log.debug(
+        "modbus_bump_tag", project=project, file_path=file_path, ref=mr.source_branch
+    )
+    file = project.files.get(file_path=file_path, ref=mr.source_branch)
+    content = file.decode().decode("utf-8")
+    count = 0  # replace all
+    tag_name = mr.title
+    content, number_replacements = re.subn(
+        match, rf"\1{tag_name}\3", content, count, re.M
+    )
+    _log.debug(
+        "modbus_bump_tag",
+        tag_name=tag_name,
+        project=project.name,
+        number_replacements=number_replacements,
+    )
+
+    commit_message = f"Bumps modbus_look version"
+    ensure_file_content(
+        project, mr.source_branch, file_path, content, commit_message, dry_run
+    )

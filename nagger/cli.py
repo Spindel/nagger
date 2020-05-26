@@ -168,4 +168,22 @@ def tag_release(dry_run, tag_name):
     release.milestone_release(gl, tag_name, dry_run)
 
 
+@milestone.command()
+@click.option("-n", "--dry-run", is_flag=True)
+@click.option("-r", "--ref", default="master")
+@click.argument("tag-name")
+@click.argument("milestone")
+def modbus_release(dry_run, tag_name, milestone, ref):
+    """Ensures tag in modbus-lookup and
+    MRs in projects that requires modbus-lookup
+    """
+    setup_logging()
+    assert tag_name.count(".") >= 2, "A full tag name, eg v3.1.0"
+    try:
+        gl = get_env_gitlab()
+    except NoToken:
+        gl = get_oauth_gitlab()
+    release.modbus_release(gl, tag_name, milestone, ref, dry_run)
+
+
 cli = click.CommandCollection(sources=[milestone, bot])

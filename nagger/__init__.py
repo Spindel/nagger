@@ -14,6 +14,8 @@ GROUP_NAME = "ModioAB"
 DEFAULT_API_URL = "https://gitlab.com/"
 IGNORE_MR_PROJECTS = ["ModioAB/sysadmin", "ModioAB/clientconfig"]
 
+MODBUS_LOOKUP = "ModioAB/modbus_lookup"
+
 IGNORE_RELEASE_PROJECTS = [
     "ModioAB/sysadmin",  # Does not follow a release cycle
     "ModioAB/clientconfig",  # Does not follow a release cycle
