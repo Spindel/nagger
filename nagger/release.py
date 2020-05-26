@@ -547,7 +547,7 @@ def ensure_wiki_page_with_content(wikis, title, content, dry_run=True):
         _log.info("DRY run wiki page")
         print(content)
     else:
-        if not page:
+        if page is not None:
             wikis.create({"title": title, "content": content})
         else:
             # page.save() does not url-encode slashes properly
