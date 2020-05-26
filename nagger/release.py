@@ -3,16 +3,16 @@
 from enum import IntEnum
 from dataclasses import dataclass
 from datetime import timezone, datetime
-from typing import List
+from typing import List, Optional
+from urllib.parse import quote_plus
 
 from dateutil.parser import isoparse
 
 from structlog import get_logger
-from .logs import log_state
 from structlog.contextvars import bind_contextvars, unbind_contextvars
-
 from jinja2 import Environment, PackageLoader
 
+from .logs import log_state
 from . import GROUP_NAME, RELEASE_PROJECTS, IGNORE_MR_PROJECTS, IGNORE_RELEASE_PROJECTS
 
 _log = get_logger("nagger")
@@ -84,6 +84,66 @@ class ProjectChangelog:
         return result
 
 
+@dataclass
+class Progress:
+    completed: int
+    total: int
+
+
+@dataclass
+class Issue:
+    """Issue for Mermaid representation"""
+
+    id: int
+    link: str
+    title: str
+    state: str
+    related: List["Issue"]
+    progress: Optional[Progress]
+    parent: Optional["Issue"]
+
+    @property
+    def closed(self) -> bool:
+        return self.state == "closed"
+
+    def __repr__(self):
+        return f"{self.link}"
+
+    @classmethod
+    def from_issue(cls, raw, parent=None):
+        progress = None
+        if raw.has_tasks:
+            task_stats = raw.task_completion_status
+            progress = Progress(
+                completed=task_stats["completed_count"], total=task_stats["count"],
+            )
+
+        # Start by creating it with an empty "related"
+        issue = cls(
+            id=raw.id,
+            title=raw.title.replace('"', "'"),
+            link=raw.references["full"],
+            state=raw.state,
+            progress=progress,
+            related=[],
+            parent=parent,
+        )
+        return issue
+
+
+def present_issue(issue: Issue):
+    if issue.closed:
+        emoji = ":white_check_mark:"
+    else:
+        emoji = ":black_medium_square:"
+
+    tasks = ""
+    if issue.progress is not None:
+        tasks = f"{issue.progress.completed}/{issue.progress.total}"
+
+    return f"{emoji} {issue.title} {issue.link} {tasks}"
+
+
 def present_kind(val: Kind):
     if val == Kind.Feature:
         return "New features"
@@ -97,9 +157,9 @@ def present_kind(val: Kind):
 def get_milestone(gl, milestone_name):
     bind_contextvars(milestone_name=milestone_name, group_name=GROUP_NAME)
     group = gl.groups.get(GROUP_NAME)
-    ms = group.milestones.list(all=True)
-    our_ms = (m for m in ms if m.state == "active" and m.title == milestone_name)
-    milestone = next(our_ms)
+    stones = group.milestones.list(title=milestone_name, state="active", as_list=True)
+    # let it crash if no stones found
+    milestone = stones[0]
     bind_contextvars(milestone_id=milestone.id)
     return milestone
 
@@ -118,6 +178,7 @@ def get_template(template_name: str):
         lstrip_blocks=True,
     )
     environment.filters["present_kind"] = present_kind
+    environment.filters["present_issue"] = present_issue
     environment.filters["labels2md"] = labels_to_md
     environment.globals["Kind"] = Kind
     return environment.get_template(template_name)
@@ -191,9 +252,8 @@ def make_changelog(merge_requests):
     return sorted(result)
 
 
-def make_milestone_changelog(gl, milestone_name) -> List[ProjectChangelog]:
+def make_milestone_changelog(gl, milestone) -> List[ProjectChangelog]:
     """Grabs all MR for a milestone, returning a Dict mapping to changelogs"""
-    milestone = get_milestone(gl, milestone_name)
     mrs = milestone.merge_requests()
     merged_mr = [m for m in mrs if m.state == "merged"]
 
@@ -216,6 +276,47 @@ def make_milestone_changelog(gl, milestone_name) -> List[ProjectChangelog]:
         result.append(pcl)
     unbind_contextvars("project_id", "num_mrs")
     return sorted(result)
+
+
+def load_issues(gl, initial_issues) -> List[Issue]:
+    """Load a list of issues and populates them, recursively.
+
+    """
+    seen = set()
+
+    def load_issue(project_id, issue_iid, parent=None) -> Optional[Issue]:
+        if (project_id, issue_iid) in seen:
+            _log.debug(
+                "Already seen",
+                project_id=project_id,
+                issue_iid=issue_iid,
+                parent=parent,
+            )
+            return None
+
+        seen.add((project_id, issue_iid))
+
+        _log.debug(
+            "load_issue", project_id=project_id, issue_iid=issue_iid, parent=parent
+        )
+        project = gl.projects.get(project_id)
+        raw = project.issues.get(issue_iid)
+        issue = Issue.from_issue(raw, parent=parent)
+
+        # Recursively populate related items and append them to our related
+        children = raw.links.list(as_list=False)
+        for rel in children:
+            child = load_issue(rel.project_id, rel.iid, parent=issue)
+            if child is not None:
+                issue.related.append(child)
+        return issue
+
+    results = []
+    for obj in initial_issues:
+        val = load_issue(project_id=obj.project_id, issue_iid=obj.iid)
+        if val is not None:
+            results.append(val)
+    return results
 
 
 def milestone_changelog(gl, milestone_name):
@@ -439,36 +540,74 @@ def resort_changes(changes: List[ProjectChangelog]) -> List[ProjectChangelog]:
 
 
 def changelog_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
-    title = f"Release-notes-{milestone_name}"
+    milestone = get_milestone(gl, milestone_name)
+    title = f"Release notes/{milestone_name}"
     bind_contextvars(wiki_project=wiki_project, milestone_name=milestone_name)
 
-    all_changes = make_milestone_changelog(gl, milestone_name)
+    all_changes = make_milestone_changelog(gl, milestone)
     all_changes = resort_changes(all_changes)
     wiki_md = get_template("wiki.md")
-
-    content = wiki_md.render(milestone_name=milestone_name, projects=all_changes)
+    content = wiki_md.render(milestone=milestone, projects=all_changes)
 
     project = gl.projects.get(wiki_project)
-    wikis = project.wikis
-    pages = wikis.list()
-    # if we use sane titles the slug will match title?
-    found_page = [p for p in pages if p.slug == title]
-    args = {
-        "title": title,
-        "content": content,
-    }
+    ensure_wiki_page_with_content(project.wikis, title, content, dry_run)
+
+
+def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project_name=WIKI_PROJECT):
+    bind_contextvars(wiki_project_name=wiki_project_name, milestone_name=milestone_name)
+    wiki_project = gl.projects.get(wiki_project_name)
+    wikis = wiki_project.wikis
+    mermaid_title = f"Milestones/{milestone_name}"
+    # prefer wiki_project-project milestone
+    mss = wiki_project.milestones.list(
+        title=milestone_name, state="active", as_list=True
+    )
+    if len(mss) > 0:
+        ms = mss[0]
+        bind_contextvars(milestone_origin=wiki_project_name)
+    else:
+        # fallback to group milestone
+        ms = get_milestone(gl, milestone_name)
+        bind_contextvars(milestone_origin=GROUP_NAME)
+
+    initial_issues = [x for x in ms.issues()]
+
+    # Load and populate a tree of issues
+    issues = load_issues(gl, initial_issues)
+
+    # Load our template and render it
+    issue_md = get_template("issue_tree.md")
+    issue_content = issue_md.render(milestone=ms, issues=issues)
+
+    # Load our Mermaid chart and render it
+    mermaid_md = get_template("mermaid_chart.md")
+    mermaid_content = mermaid_md.render(issues=issues)
+
+    # Join them together with a HR
+    content = "\n".join((issue_content, "", "---", "", mermaid_content))
+    ensure_wiki_page_with_content(wikis, mermaid_title, content, dry_run)
+
+
+def ensure_wiki_page_with_content(wikis, title, content, dry_run=True):
+    from gitlab.exceptions import GitlabGetError
+
+    bind_contextvars(wiki_page_title=title)
+    page = None
+    try:
+        page = wikis.get(title)
+        _log.info("Will update wiki page")
+    except GitlabGetError:
+        _log.info("Will create wiki page")
+
     if dry_run:
-        print("DRY RUN", title)
+        _log.info("DRY run wiki page")
         print(content)
         return
 
-    if not found_page:
-        _log.info("Creating page", **args)
-        wikis.create(args)
-    elif len(found_page) == 1:
-        _log.info("Updating page", **args)
-        page = wikis.get(found_page[0].slug)
-        page.content = content
-        page.save()
+    if page is not None:
+        wikis.create({"title": title, "content": content})
     else:
-        _log.msg("Duplicate page title, ignoring.", title=title)
+        # page.save() does not url-encode slashes properly
+        # so this is a workaround:
+        wikis.update(quote_plus(page.slug), {"title": title, "content": content})
+    _log.msg("wiki page successfully upserted")

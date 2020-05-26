@@ -1,4 +1,6 @@
-## Release notes {{ milestone_name }}
+## Release notes [{{  milestone.title }}]({{ milestone.web_url }})
+
+Period: {{milestone.start_date}} - {{milestone.due_date}}
 
 {% for project in projects %}
 ## {{ project.name }}
