@@ -3,6 +3,8 @@ date: {{ date }}
 Category: Releases
 author: {{ author }}
 
+{{ description }}
+
 {% for project in projects %}
 {% if project.external %}
 ## {{ project.name }}

@@ -486,6 +486,7 @@ def changelog_homepage(gl, milestone_name, dry_run=True, www_project=WWW_PROJECT
     from .ensure import ensure_file_content
 
     bind_contextvars(www_project=www_project, milestone_name=milestone_name)
+    description = get_milestone(gl, milestone_name).description
 
     all_changes = make_milestone_changelog(gl, milestone_name)
     all_changes = resort_changes(all_changes)
@@ -498,7 +499,11 @@ def changelog_homepage(gl, milestone_name, dry_run=True, www_project=WWW_PROJECT
     author = f"{gl.user.name}"
 
     content = homepage_md.render(
-        milestone_name=milestone_name, author=author, date=date, projects=all_changes
+        milestone_name=milestone_name,
+        author=author,
+        date=date,
+        projects=all_changes,
+        description=description,
     )
     project = gl.projects.get(www_project)
     if dry_run:

@@ -2,6 +2,8 @@
 
 Period: {{milestone.start_date}} - {{milestone.due_date}}
 
+{{ milestone.description }}
+
 {% for project in projects %}
 ## {{ project.name }}
 
