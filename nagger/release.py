@@ -542,7 +542,6 @@ def ensure_wiki_page_with_content(wikis, title, content, dry_run=True):
         _log.info("Will update wiki page")
     except GitlabGetError:
         _log.info("Will create wiki page")
-        pass
 
     if dry_run:
         _log.info("DRY run wiki page")
