@@ -539,45 +539,43 @@ def resort_changes(changes: List[ProjectChangelog]) -> List[ProjectChangelog]:
     return changes
 
 
-def changelog_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
+def changelog_wiki(gl, milestone_name, dry_run=True, wiki_project_name=WIKI_PROJECT):
     milestone = get_milestone(gl, milestone_name)
     title = f"Release notes/{milestone_name}"
-    bind_contextvars(wiki_project=wiki_project, milestone_name=milestone_name)
 
     all_changes = make_milestone_changelog(gl, milestone)
     all_changes = resort_changes(all_changes)
     wiki_md = get_template("wiki.md")
     content = wiki_md.render(milestone=milestone, projects=all_changes)
 
-    project = gl.projects.get(wiki_project)
-    ensure_wiki_page_with_content(project.wikis, title, content, dry_run)
+    ensure_wiki_page_with_content(gl, wiki_project_name, title, content, dry_run)
 
 
 def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project_name=WIKI_PROJECT):
-    bind_contextvars(wiki_project_name=wiki_project_name, milestone_name=milestone_name)
-    wiki_project = gl.projects.get(wiki_project_name)
-    wikis = wiki_project.wikis
+    bind_contextvars(milestone_name=milestone_name)  # Normally done in get_milestone.
     mermaid_title = f"Milestones/{milestone_name}"
+
     # prefer wiki_project-project milestone
+    wiki_project = gl.projects.get(wiki_project_name)
     mss = wiki_project.milestones.list(
         title=milestone_name, state="active", as_list=True
     )
     if len(mss) > 0:
-        ms = mss[0]
-        bind_contextvars(milestone_origin=wiki_project_name)
+        milestone = mss[0]
+        bind_contextvars(milestone_origin=wiki_project_name, milestone_id=milestone.id)
     else:
         # fallback to group milestone
-        ms = get_milestone(gl, milestone_name)
+        milestone = get_milestone(gl, milestone_name)
         bind_contextvars(milestone_origin=GROUP_NAME)
 
-    initial_issues = [x for x in ms.issues()]
+    initial_issues = [x for x in milestone.issues()]
 
     # Load and populate a tree of issues
     issues = load_issues(gl, initial_issues)
 
     # Load our template and render it
     issue_md = get_template("issue_tree.md")
-    issue_content = issue_md.render(milestone=ms, issues=issues)
+    issue_content = issue_md.render(milestone=milestone, issues=issues)
 
     # Load our Mermaid chart and render it
     mermaid_md = get_template("mermaid_chart.md")
@@ -585,29 +583,37 @@ def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project_name=WIKI_PROJ
 
     # Join them together with a HR
     content = "\n".join((issue_content, "", "---", "", mermaid_content))
-    ensure_wiki_page_with_content(wikis, mermaid_title, content, dry_run)
+
+    ensure_wiki_page_with_content(
+        gl, wiki_project_name, mermaid_title, content, dry_run
+    )
 
 
-def ensure_wiki_page_with_content(wikis, title, content, dry_run=True):
+def ensure_wiki_page_with_content(gl, wiki_project_name, title, content, dry_run=True):
     from gitlab.exceptions import GitlabGetError
 
+    bind_contextvars(wiki_project_name=wiki_project_name, wiki_title=title)
+    wiki_project = gl.projects.get(wiki_project_name)
+    wikis = wiki_project.wikis
+
     bind_contextvars(wiki_page_title=title)
-    page = None
+    slug = page = None
     try:
         page = wikis.get(title)
-        _log.info("Will update wiki page")
+        slug = quote_plus(page.slug)
+        bind_contextvars(action="Update page", slug=slug)
     except GitlabGetError:
-        _log.info("Will create wiki page")
+        bind_contextvars(action="Create new")
 
     if dry_run:
         _log.info("DRY run wiki page")
         print(content)
         return
 
-    if page is not None:
+    if page is None:
         wikis.create({"title": title, "content": content})
     else:
         # page.save() does not url-encode slashes properly
         # so this is a workaround:
-        wikis.update(quote_plus(page.slug), {"title": title, "content": content})
+        wikis.update(slug, {"title": title, "content": content})
     _log.msg("wiki page successfully upserted")
