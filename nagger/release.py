@@ -99,7 +99,7 @@ def present_kind(val: Kind):
 def get_milestone(gl, milestone_name):
     bind_contextvars(milestone_name=milestone_name, group_name=GROUP_NAME)
     group = gl.groups.get(GROUP_NAME)
-    stones = group.milestones.list(title=milestone_name, as_list=True)
+    stones = group.milestones.list(title=milestone_name, state="active", as_list=True)
     # let it crash if no stones found
     milestone = stones[0]
     bind_contextvars(milestone_id=milestone.id)
@@ -453,18 +453,22 @@ def changelog_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
     ensure_wiki_page_with_content(project.wikis, title, content, dry_run)
 
 
-def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
-    bind_contextvars(wiki_project=wiki_project, milestone_name=milestone_name)
-    agile = gl.projects.get(wiki_project)
-    wikis = agile.wikis
+def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project_name=WIKI_PROJECT):
+    bind_contextvars(wiki_project_name=wiki_project_name, milestone_name=milestone_name)
+    wiki_project = gl.projects.get(wiki_project_name)
+    wikis = wiki_project.wikis
     mermaid_title = f"Milestones/{milestone_name}"
-    # prefer agile-project milestone
-    mss = agile.milestones.list(title=milestone_name, state="active", as_list=True)
+    # prefer wiki_project-project milestone
+    mss = wiki_project.milestones.list(
+        title=milestone_name, state="active", as_list=True
+    )
     if len(mss) > 0:
         ms = mss[0]
+        bind_contextvars(milestone_origin=wiki_project_name)
     else:
         # fallback to group milestone
         ms = get_milestone(gl, milestone_name)
+        bind_contextvars(milestone_origin=GROUP_NAME)
 
     parts = []
     parts.append(f"## [{ms.title}]({ms.web_url}) \n")
@@ -476,8 +480,8 @@ def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
     ul = []
 
     @lru_cache(maxsize=None)
-    def loadIssue(project_id, issue_iid):
-        _log.debug("loadIssue", project=project_id, iid=issue_iid)
+    def load_issue(project_id, issue_iid):
+        _log.debug("load_issue", project=project_id, iid=issue_iid)
         project = gl.projects.get(project_id)
         return project.issues.get(issue_iid)
 
@@ -490,10 +494,10 @@ def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
             ret.append(f"class {id} {issue.state};")
         return ret
 
-    def doIssues(issues, ul, mermaid, used, parent=None, indent=0):
+    def do_issues(issues, ul, mermaid, used, parent=None, indent=0):
         for shallowIssue in issues:
             if shallowIssue.id not in used:
-                issue = loadIssue(shallowIssue.project_id, shallowIssue.iid)
+                issue = load_issue(shallowIssue.project_id, shallowIssue.iid)
                 used.add(issue.id)
                 tasks = ""
                 if issue.has_tasks:
@@ -511,7 +515,7 @@ def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
                     mermaid.extend(mermaid_format(parent))
 
                 mermaid.extend(mermaid_format(issue))
-                doIssues(
+                do_issues(
                     issue.links.list(as_list=False),
                     ul,
                     mermaid,
@@ -521,7 +525,7 @@ def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project=WIKI_PROJECT):
                 )
 
     used = set()
-    doIssues(ms.issues(), ul, mermaid, used)
+    do_issues(ms.issues(), ul, mermaid, used)
 
     mermaid.append("```")
     parts.extend(ul)
@@ -546,11 +550,12 @@ def ensure_wiki_page_with_content(wikis, title, content, dry_run=True):
     if dry_run:
         _log.info("DRY run wiki page")
         print(content)
+        return
+
+    if page is not None:
+        wikis.create({"title": title, "content": content})
     else:
-        if page is not None:
-            wikis.create({"title": title, "content": content})
-        else:
-            # page.save() does not url-encode slashes properly
-            # so this is a workaround:
-            wikis.update(quote_plus(page.slug), {"title": title, "content": content})
-        _log.msg("wiki page successfully upserted", content=content)
+        # page.save() does not url-encode slashes properly
+        # so this is a workaround:
+        wikis.update(quote_plus(page.slug), {"title": title, "content": content})
+    _log.msg("wiki page successfully upserted")
