@@ -32,9 +32,26 @@ def ensure_branch(project, branch_name, dry_run=True):
     _log.info("Creating new branch", **branch_obj)
     if dry_run:
         _log.info("DRY-RUN")
-        return project.branches.get(-1, lazy=True) # just to return a mock Branch.
+        return project.branches.get(
+            "master", lazy=True
+        )  # just to return master as Branch.
     branch = project.branches.create(branch_obj)
     return branch
+
+
+def ensure_tag(project, tag_name, ref="master", dry_run=True):
+    from gitlab.exceptions import GitlabGetError
+
+    try:
+        tag = project.tags.get(tag_name)
+        _log.info("Tag exists")
+        return tag
+    except GitlabGetError:
+        _log.info("Will create tag", tag_name=tag_name, ref=ref)
+        if not dry_run:
+            return project.tags.create({"tag_name": tag_name, "ref": ref})
+        _log.info("DRY-RUN")
+        return project.tags.get(-7, lazy=True)
 
 
 def ensure_mr(project, mr_title, dry_run=True):
@@ -56,8 +73,12 @@ def ensure_mr(project, mr_title, dry_run=True):
     _log.info("MR creating", **mr_obj)
     if dry_run:
         _log.info("DRY-RUN")
-        return project.mergerequests.get(-3, lazy=True) # mock MR
+        mr = project.mergerequests.get(-3, lazy=True)  # mock MR
+        mr.source_branch = branch.name
+        mr.title = mr_title
+        return mr
     mr = project.mergerequests.create(mr_obj)
+
     return mr
 
 
@@ -72,7 +93,7 @@ def ensure_file_content(project, branch, file_path, content, message, dry_run=Tr
         _log.info("Updating file")
         file.content = content
         if dry_run:
-            _log.debug("DRY-RUN: update ", branch, commit_message)
+            _log.debug("DRY-RUN: update ", branch=branch, message=message)
             return
         file.save(branch=branch, commit_message=message)
         return
