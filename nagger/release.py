@@ -321,7 +321,8 @@ def load_issues(gl, initial_issues) -> List[Issue]:
 
 def milestone_changelog(gl, milestone_name):
     """Stomps all over a milestone"""
-    all_changes = make_milestone_changelog(gl, milestone_name)
+    milestone = get_milestone(gl, milestone_name)
+    all_changes = make_milestone_changelog(gl, milestone)
 
     external_md = get_template("external.md")
     print("--8<--" * 10 + "\n")
@@ -443,8 +444,8 @@ def milestone_release(gl, tag_name, dry_run):
         else:
             try:
                 tag = project.tags.create(tag_prefs)
-                _log.info("Created tag", commit=tag.id)
-                print(f"{proj_name}:  tag: {tag_name} commit: {tag.id}")
+                _log.info("Created tag", commit=tag.target)
+                print(f"{proj_name}:  tag: {tag_name} commit: {tag.target}")
             except Exception as e:
                 err_msg = f"{e.__class__.__name__}: {e}"
                 if DEBUG:
@@ -487,8 +488,9 @@ def changelog_homepage(gl, milestone_name, dry_run=True, www_project=WWW_PROJECT
 
     bind_contextvars(www_project=www_project, milestone_name=milestone_name)
     description = get_milestone(gl, milestone_name).description
+    milestone = get_milestone(gl, milestone_name)
 
-    all_changes = make_milestone_changelog(gl, milestone_name)
+    all_changes = make_milestone_changelog(gl, milestone)
     all_changes = resort_changes(all_changes)
     homepage_md = get_template("homepage.md")
 
