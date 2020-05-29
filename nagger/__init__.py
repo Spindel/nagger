@@ -33,6 +33,7 @@ RELEASE_PROJECTS = [
     "ModioAB/caramel-manager",
     "ModioAB/visualisation-editor",
     "ModioAB/nagger",
+    "ModioAB/manuals",
 ]
 
 
