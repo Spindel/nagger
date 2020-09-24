@@ -115,7 +115,8 @@ class Issue:
         if raw.has_tasks:
             task_stats = raw.task_completion_status
             progress = Progress(
-                completed=task_stats["completed_count"], total=task_stats["count"],
+                completed=task_stats["completed_count"],
+                total=task_stats["count"],
             )
 
         # Start by creating it with an empty "related"
@@ -164,9 +165,15 @@ def get_milestone(gl, milestone_name):
     return milestone
 
 
+def label_to_md(label: str):
+    if " " in label:
+        return f'~"{label}"'
+    return f"~{label}"
+
+
 def labels_to_md(labels: List[str]):
     """Convert a list of labels to GitLab markdown labels"""
-    prefixed = (f"~{label}" for label in labels)
+    prefixed = (label_to_md(label) for label in labels)
     result = " ".join(prefixed)
     return result
 
@@ -279,9 +286,7 @@ def make_milestone_changelog(gl, milestone) -> List[ProjectChangelog]:
 
 
 def load_issues(gl, initial_issues) -> List[Issue]:
-    """Load a list of issues and populates them, recursively.
-
-    """
+    """Load a list of issues and populates them, recursively."""
     seen = set()
 
     def load_issue(project_id, issue_iid, parent=None) -> Optional[Issue]:
@@ -321,7 +326,8 @@ def load_issues(gl, initial_issues) -> List[Issue]:
 
 def milestone_changelog(gl, milestone_name):
     """Stomps all over a milestone"""
-    all_changes = make_milestone_changelog(gl, milestone_name)
+    milestone = get_milestone(gl, milestone_name)
+    all_changes = make_milestone_changelog(gl, milestone)
 
     external_md = get_template("external.md")
     print("--8<--" * 10 + "\n")
