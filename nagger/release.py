@@ -165,9 +165,15 @@ def get_milestone(gl, milestone_name):
     return milestone
 
 
+def label_to_md(label: str):
+    if " " in label:
+        return f'~"{label}"'
+    return f"~{label}"
+
+
 def labels_to_md(labels: List[str]):
     """Convert a list of labels to GitLab markdown labels"""
-    prefixed = (f"~{label}" for label in labels)
+    prefixed = (label_to_md(label) for label in labels)
     result = " ".join(prefixed)
     return result
 
