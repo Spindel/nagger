@@ -115,7 +115,8 @@ class Issue:
         if raw.has_tasks:
             task_stats = raw.task_completion_status
             progress = Progress(
-                completed=task_stats["completed_count"], total=task_stats["count"],
+                completed=task_stats["completed_count"],
+                total=task_stats["count"],
             )
 
         # Start by creating it with an empty "related"
@@ -279,9 +280,7 @@ def make_milestone_changelog(gl, milestone) -> List[ProjectChangelog]:
 
 
 def load_issues(gl, initial_issues) -> List[Issue]:
-    """Load a list of issues and populates them, recursively.
-
-    """
+    """Load a list of issues and populates them, recursively."""
     seen = set()
 
     def load_issue(project_id, issue_iid, parent=None) -> Optional[Issue]:
