@@ -321,7 +321,8 @@ def load_issues(gl, initial_issues) -> List[Issue]:
 
 def milestone_changelog(gl, milestone_name):
     """Stomps all over a milestone"""
-    all_changes = make_milestone_changelog(gl, milestone_name)
+    milestone = get_milestone(gl, milestone_name)
+    all_changes = make_milestone_changelog(gl, milestone)
 
     external_md = get_template("external.md")
     print("--8<--" * 10 + "\n")
