@@ -1,5 +1,5 @@
 {% if changes %}
-## {{ project | title }}
+## {{ project }}
 
 {% for change in changes %}
 * {{ change.kind.name }}: {{ change.text }}

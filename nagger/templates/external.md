@@ -1,5 +1,5 @@
 {% if changes %}
-## {{ project | title }}
+## {{ project }}
 
 {% for kind in Kind %}
 {% for change in changes | selectattr("kind", "equalto", kind.value) %}
