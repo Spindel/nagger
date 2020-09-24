@@ -15,10 +15,12 @@ DEFAULT_API_URL = "https://gitlab.com/"
 IGNORE_MR_PROJECTS = ["ModioAB/sysadmin", "ModioAB/clientconfig"]
 
 IGNORE_RELEASE_PROJECTS = [
+    "ModioAB/mytemp-backend",  # Has its own release tagging procedure
     "ModioAB/sysadmin",  # Does not follow a release cycle
     "ModioAB/clientconfig",  # Does not follow a release cycle
     "ModioAB/modbus_lookup",  # Has it's own release cycle
     "ModioAB/snmp_lookup",  # Has it's own release cycle
+    "ModioAB/caramel-client-rs",  # Has it's own release cycle
 ]
 RELEASE_PROJECTS = [
     "ModioAB/afase",
