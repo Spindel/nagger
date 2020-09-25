@@ -541,9 +541,13 @@ IMPORTANT_PROJECTS = {
 
 
 def resort_changes(changes: List[ProjectChangelog]) -> List[ProjectChangelog]:
-    """Morphs changes to list projects we care for first"""
+    """Morphs changes to list projects we care for first.
+
+    Also, public changes are moved before internal changes.
+    """
     offset = 0
     for project in changes:
+        project.changes = project.external + project.internal
         if project.name in IMPORTANT_PROJECTS:
             changes.remove(project)
             changes.insert(offset, project)
