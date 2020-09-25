@@ -12,7 +12,11 @@ _log = structlog.get_logger(__name__)
 
 GROUP_NAME = "ModioAB"
 DEFAULT_API_URL = "https://gitlab.com/"
-IGNORE_MR_PROJECTS = ["ModioAB/sysadmin", "ModioAB/clientconfig"]
+IGNORE_MR_PROJECTS = [
+    "ModioAB/sysadmin",
+    "ModioAB/clientconfig",
+    "ModioAB/caramel-client-rs",
+]
 
 IGNORE_RELEASE_PROJECTS = [
     "ModioAB/mytemp-backend",  # Has its own release tagging procedure
