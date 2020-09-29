@@ -13,6 +13,7 @@ author: {{ author }}
 {% for change in project.external | selectattr("kind", "equalto", kind.value) %}
 {% if loop.first %}
 {{ kind | present_kind }}:
+
 {% endif %}
 * {{ change.text }}
 {% if loop.last %}
