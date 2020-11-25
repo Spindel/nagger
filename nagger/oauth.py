@@ -89,8 +89,8 @@ class GLOauth:
         )
         resp = self.session.post(self.TOKEN_URL, body)
         data = resp.json()
-        if not response.ok:
-            _log.error("Error from server(remove ~/.netrc?): %s", data)
+        if not resp.ok:
+            _log.error(f"Error from server(remove ~/.netrc?): {data}")
             resp.raise_for_status()
         return data["access_token"]
 
@@ -105,4 +105,7 @@ class GLOauth:
         }
         resp = self.session.get(self.INFO_URL, params=params)
         data = resp.json()
+        if not resp.ok:
+            _log.error(f"Error from server(remove ~/.netrc?): {data}")
+            resp.raise_for_status()
         return data
