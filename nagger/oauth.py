@@ -89,6 +89,9 @@ class GLOauth:
         )
         resp = self.session.post(self.TOKEN_URL, body)
         data = resp.json()
+        if not response.ok:
+            _log.error("Error from server(remove ~/.netrc?): %s", data)
+            resp.raise_for_status()
         return data["access_token"]
 
     def get_token(self):
