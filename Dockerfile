@@ -1,4 +1,5 @@
-FROM registry.gitlab.com/modioab/base-image/fedora-31/python:master
+ARG IMAGE_BUILD_FROM
+FROM $IMAGE_BUILD_FROM
 MAINTAINER "D.S. Ljungmark" <ljungmark@modio.se>
 
 ARG URL=unknown
