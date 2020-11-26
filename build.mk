@@ -167,6 +167,14 @@ GIT_HEAD_REF_FILE := $(shell if [ -f $(GIT_HEAD_REF_FILE) ]; then \
                                echo $(GIT_TOP_DIR)/$(GIT_HEAD_REF_FILE); \
                              fi)
 
+# Note that we archive the commit tree object HEAD^{tree} rather than
+# the commit object HEAD. The reason for this is to circumvent a
+# problem with podman/buildah which will currently error out if it
+# finds a global extended header when adding a tar archive.
+#
+# The git archive command will generate tar archives with a global
+# extended header containing the commit hash as a comment if the
+# archived object is a commit.
 define _cmd_source_archive =
 $(Q)if ! $(_git_working_copy_clean); then \
   echo >&2 "*** NOTE - These uncommitted changes aren't included in $@: ***"; \
@@ -179,7 +187,7 @@ trap "rm -rf -- \"$$tmpdir\"" EXIT INT TERM && \
   $(_git) archive \
     -o "$(CURDIR)/$@" \
     --prefix="$(_archive_prefix)" \
-    HEAD $(SOURCE_ARCHIVE_PATH) && \
+    HEAD^{tree} $(SOURCE_ARCHIVE_PATH) && \
   $(_git) submodule sync && \
   $(_git) submodule update --init && \
   $(_git) submodule --quiet foreach 'echo $$path' | while read path; do \
@@ -189,7 +197,7 @@ trap "rm -rf -- \"$$tmpdir\"" EXIT INT TERM && \
       $(_git) archive \
 	-o "$$tmpdir/submodule.tar" \
 	--prefix="$(_archive_prefix)$$path/" \
-	HEAD . && \
+	HEAD^{tree} . && \
       tar --concatenate -f "$(CURDIR)/$@" "$$tmpdir/submodule.tar"); \
     fi \
   done) && \
@@ -401,6 +409,14 @@ IMAGE_TAG = $(_image_repo):$(_image_tag_prefix)$(IMAGE_TAG_SUFFIX)
 
 _podman = podman
 
+
+ifdef IMAGE_BUILD_FROM
+_image_build_from_arg = --build-arg=IMAGE_BUILD_FROM="$(IMAGE_BUILD_FROM)"
+else
+_image_build_from_arg =
+endif
+
+
 ifdef IMAGE_BUILD_VOLUME
 _build_volume = --volume $(IMAGE_BUILD_VOLUME):/build:ro,z
 else
@@ -442,6 +458,7 @@ define _cmd_image_podman_build =
     --build-arg=URL="$(CI_PROJECT_URL)" \
     --build-arg=DATE="$(_date)" \
     --build-arg=HOST="$(_host)" \
+    $(_image_build_from_arg) \
     --tag=$(IMAGE_LOCAL_TAG) \
     .
 endef
@@ -454,6 +471,7 @@ define _cmd_image_docker_build =
     --build-arg=URL="$(CI_PROJECT_URL)" \
     --build-arg=DATE="$(_date)" \
     --build-arg=HOST="$(_host)" \
+    $(_image_build_from_arg) \
     --tag=$(IMAGE_LOCAL_TAG) \
     .
 endef
@@ -662,7 +680,7 @@ define _cmd_image_podman_login =
   echo "$$CI_BUILD_TOKEN" | podman login $(_registry_login_user) --password-stdin $(IMAGE_REGISTRY)
 endef
 define _cmd_image_docker_login =
-  docker login $(_registry_login_user) -p "$$CI_BUILD_TOKEN" $(IMAGE_REGISTRY)
+  echo "$$CI_BUILD_TOKEN" | docker login $(_registry_login_user) --password-stdin $(IMAGE_REGISTRY)
 endef
 _log_cmd_image_login = LOGIN $(IMAGE_REGISTRY)
 
@@ -705,7 +723,9 @@ ifneq ($(FEDORA_ROOT_ARCHIVE),)
 
 CLEANUP_FILES += $(FEDORA_ROOT_ARCHIVE)
 
-FEDORA_ROOT_RELEASE ?= 31
+ifeq ($(FEDORA_ROOT_RELEASE),)
+  $(error You must set FEDORA_ROOT_RELEASE to build a Fedora root file system)
+endif
 
 define _cmd_fedora_root =
 $(Q)set -u && \
