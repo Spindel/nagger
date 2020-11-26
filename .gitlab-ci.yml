@@ -1,85 +1,46 @@
+# vim: expandtab:ts=8:sw=2:tw=80:fdm=marker:ft=yaml:
 %YAML 1.1
 ---
-# Keep the includes first to illustrate that definitions that everything that
-# follows override included definitions.
 include:
-    # Only run for branches and tags
-    # https://docs.gitlab.com/ee/ci/yaml/#workflowrules-templates
-    - template: 'Workflows/Branch-Pipelines.gitlab-ci.yml'
-    #   - file: /templates/container-build.yaml
-    #     project: ModioAB/base-image
-    #     ref: master
+  # Only run for branches and tags
+  # https://docs.gitlab.com/ee/ci/yaml/#workflowrules-templates
+  - template: 'Workflows/MergeRequest-Pipelines.gitlab-ci.yml'
+  - file: /.gitlab/ci/default.yml
+    project: ModioAB/agile
+    ref: master
+  - file: /.gitlab/ci/container.yml
+    project: ModioAB/agile
+    ref: master
 
 
-default:
-    # Allow running pipelines to be cancelled if made redundant
-    interruptible: true
-    image: registry.gitlab.com/modioab/base-image/fedora-${FEDORA_ROOT_RELEASE}/build:master
+container:build:
+  extends: .container:build
 
-    # FIXME: The following defaults should be a template
-
-    # Retry jobs when parts of the CI system itself fails
-    # https://docs.gitlab.com/ee/ci/yaml/#retry
-    retry:
-        max: 2
-        when:
-            - api_failure
-            - runner_system_failure
-            - scheduler_failure
-    tags:
-        - x86_64
-
-variables:
-    # Podman defaults to OCI images, since 2019-02-15+ onwards, gitlab registry
-    # fails to work properly with the default `oci` images.
-    # TODO: Test & bug-report this
-    BUILDAH_FORMAT: docker
-    FEDORA_ROOT_RELEASE: 33
-
-
-stages:
-    - nag
-    - test
-    - publish
-
-
-container:
-    stage: publish
-    rules:
-        - if: '$CI_COMMIT_TAG'
-          when: on_success
-        - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-          when: on_success
-        - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-          when: manual
-          allow_failure: true
-        - when: never
-
-    script:
-        - make -f build.mk login
-        - make build-publish
+# Run "nagger nag" from our freshly built container
+nagger:ci:
+  image: registry.gitlab.com/modioab/nagger:${CI_PIPELINE_ID}
+  stage: test
+  script:
+    - nagger nag
 
 check:
-    stage: test
-    needs: []
-    before_script:
-        - pip3 install --upgrade --upgrade-strategy eager flake8 black
-    script:
-        - make check
+  stage: test
+  needs: []
+  before_script:
+    - pip3 install --upgrade --upgrade-strategy eager flake8 black
+  script:
+    - make check
 
 test:
-    stage: test
-    needs: []
-    before_script:
-        - pip3 install -r requirements_dev.txt
-        - pip3 install .
-    script:
-        - python3 setup.py test
-        - nagger nag
+  stage: test
+  needs: []
+  before_script:
+    - pip3 install -r requirements_dev.txt
+    - pip3 install .
+  script:
+    - python3 setup.py test
 
-nagger:
-    image: registry.gitlab.com/modioab/nagger:master
-    stage: nag
-    script:
-        - nagger nag
+
+container:publish:
+  extends: .container:publish
 ...
