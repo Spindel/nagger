@@ -1,3 +1,5 @@
+IMAGE_BUILD_FROM = registry.gitlab.com/modioab/base-image/fedora-$(FEDORA_ROOT_RELEASE)/python:master
+
 ARCHIVE_PREFIX = /srv/app/
 SOURCE_ARCHIVE = nagger.tar
 IMAGE_FILES += $(SOURCE_ARCHIVE)
