@@ -574,6 +574,7 @@ build-publish: $(IMAGE_DOCKERFILE) $(IMAGE_FILES)
 
 temp-publish: $(IMAGE_DOCKERFILE) $(IMAGE_FILES)
 	$(call _cmd_image,build)
+	$(call _cmd_image,test)
 	$(call _cmd_image,temp-publish)
 
 # Save the existing image to a tar archive. Remove any existing
