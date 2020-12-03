@@ -25,6 +25,7 @@ IGNORE_RELEASE_PROJECTS = [
     "ModioAB/modbus_lookup",  # Has it's own release cycle
     "ModioAB/snmp_lookup",  # Has it's own release cycle
     "ModioAB/caramel-client-rs",  # Has it's own release cycle
+    "ModioAB/modio-localapi",  # Has it's own release cycle
 ]
 RELEASE_PROJECTS = [
     "ModioAB/afase",
