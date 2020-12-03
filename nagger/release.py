@@ -449,8 +449,8 @@ def milestone_release(gl, tag_name, dry_run):
         else:
             try:
                 tag = project.tags.create(tag_prefs)
-                _log.info("Created tag", commit=tag.id)
-                print(f"{proj_name}:  tag: {tag_name} commit: {tag.id}")
+                _log.info("Created tag", commit=tag.target)
+                print(f"{proj_name}:  tag: {tag_name} commit: {tag.target}")
             except Exception as e:
                 err_msg = f"{e.__class__.__name__}: {e}"
                 if DEBUG:
