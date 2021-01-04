@@ -41,6 +41,7 @@ RELEASE_PROJECTS = [
     "ModioAB/visualisation-editor",
     "ModioAB/nagger",
     "ModioAB/manuals",
+    "ModioAB/modio-networks",
 ]
 
 
