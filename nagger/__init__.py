@@ -43,6 +43,7 @@ RELEASE_PROJECTS = [
     "ModioAB/manuals",
     "ModioAB/modio-networks",
     "ModioAB/mbus-cross",
+    "ModioAB/powercycle",
 ]
 
 
