@@ -42,6 +42,7 @@ RELEASE_PROJECTS = [
     "ModioAB/nagger",
     "ModioAB/manuals",
     "ModioAB/modio-networks",
+    "ModioAB/mbus-cross",
 ]
 
 
