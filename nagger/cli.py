@@ -49,7 +49,9 @@ def bot():
 
 @bot.command()
 def debug_variables():
-    ci_bot.debug_variables()
+    ci_bot.fun_debug_variables()
+    """For smoke testing to ensure that templates exists in package"""
+    release.get_template("wiki.md")
 
 
 @bot.command()

@@ -45,6 +45,7 @@ setup(
     keywords="nagger",
     name="nagger",
     packages=find_packages(include=["nagger"]),
+    package_data={"nagger": ["templates/*.*"]},
     setup_requires=setup_requirements,
     test_suite="tests",
     tests_require=test_requirements,
