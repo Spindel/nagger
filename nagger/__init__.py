@@ -44,6 +44,7 @@ RELEASE_PROJECTS = [
     "ModioAB/modio-networks",
     "ModioAB/mbus-cross",
     "ModioAB/powercycle",
+    "ModioAB/spilo",
 ]
 
 
