@@ -5,3 +5,7 @@ No changes.
 ## 3.21.0 (2021-02-11)
 
 No changes.
+
+## 3.20.0 (2021-02-11)
+
+No changes.
