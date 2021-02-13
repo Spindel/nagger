@@ -171,3 +171,19 @@ def tag_release(dry_run, tag_name):
 
 
 cli = click.CommandCollection(sources=[milestone, bot])
+
+
+@milestone.command()
+@click.option("-n", "--dry-run", is_flag=True)
+@click.argument("milestone", required=False)
+@click.argument("target_milestone", required=False)
+def move_issues(dry_run, milestone, target_milestone):
+    """Move open issues from milestone to target milestone"""
+    setup_logging()
+    try:
+        gl = get_env_gitlab()
+    except NoToken:
+        gl = get_oauth_gitlab()
+    source = _prompt_milestone(gl, milestone)
+    target = _prompt_milestone(gl, target_milestone)
+    release.move_opened_issues_between_milestones(gl, source, target, dry_run)

@@ -633,3 +633,39 @@ def ensure_wiki_page_with_content(gl, wiki_project_name, title, content, dry_run
         # so this is a workaround:
         wikis.update(slug, {"title": title, "content": content})
     _log.msg("wiki page successfully upserted")
+
+
+def move_opened_issues_between_milestones(
+    gl, from_milestone_name, target_milestone_name, dry_run=True
+):
+    stone = get_milestone(gl, from_milestone_name)
+    # just to crash early if missing
+    target = get_milestone(gl, target_milestone_name)
+
+    bind_contextvars(milestone_target=target.title)
+    bind_contextvars(milestone_name=stone.title)
+    group = gl.groups.get(GROUP_NAME)
+
+    count = 0
+    for group_issue in group.issues.list(
+        state="opened", milestone=stone.title, all=True
+    ):
+        bind_contextvars(issue=group_issue.references["relative"])
+        count = count + 1
+        # `group_issue` is now a GroupIssue
+        # we have to re-load to be a ProjectIssue with save-method
+        _log.msg("reload issue from project")
+        project = gl.projects.get(group_issue.project_id)
+        project_issue = project.issues.get(group_issue.iid)
+
+        project_issue.milestone_id = target.id
+        _log.msg(project_issue.title)
+        _log.msg(project_issue._get_updated_data())
+        if dry_run:
+            pass
+        else:
+            project_issue.save()
+    if dry_run:
+        _log.msg(f"Would have updated {count} issues")
+    else:
+        _log.msg(f"Updated {count} issues")
