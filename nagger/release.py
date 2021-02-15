@@ -11,7 +11,7 @@ from dateutil.parser import isoparse
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars, unbind_contextvars
 from jinja2 import Environment, PackageLoader
-
+from gitlab.v4.objects import GroupMergeRequest, GroupIssue
 from .logs import log_state
 from . import GROUP_NAME, RELEASE_PROJECTS, IGNORE_MR_PROJECTS, IGNORE_RELEASE_PROJECTS
 
@@ -635,7 +635,7 @@ def ensure_wiki_page_with_content(gl, wiki_project_name, title, content, dry_run
     _log.msg("wiki page successfully upserted")
 
 
-def move_opened_issues_between_milestones(
+def move_opened_items_between_milestones(
     gl, from_milestone_name, target_milestone_name, dry_run=True
 ):
     stone = get_milestone(gl, from_milestone_name)
@@ -647,24 +647,34 @@ def move_opened_issues_between_milestones(
     group = gl.groups.get(GROUP_NAME)
 
     count = 0
-    for group_issue in group.issues.list(
-        state="opened", milestone=stone.title, all=True
-    ):
-        bind_contextvars(issue=group_issue.references["relative"])
-        count = count + 1
-        # `group_issue` is now a GroupIssue
-        # we have to re-load to be a ProjectIssue with save-method
-        _log.msg("reload issue from project")
-        project = gl.projects.get(group_issue.project_id)
-        project_issue = project.issues.get(group_issue.iid)
 
-        project_issue.milestone_id = target.id
-        _log.msg(project_issue.title)
-        _log.msg(project_issue._get_updated_data())
+    group_issues = group.issues.list(state="opened", milestone=stone.title, all=True)
+    group_mrs = group.mergerequests.list(
+        state="opened", milestone=stone.title, all=True
+    )
+    all_items = group_issues + group_mrs
+    projects = projects_from_project_items(gl, all_items)
+
+    for group_item in all_items:
+        bind_contextvars(item=group_item.references["relative"])
+        count = count + 1
+        project = projects[group_item.project_id]
+        # `group_item` is now a GroupIssue or GroupMergeRequest
+        # we have to re-load to be a ProjectIssue or ProjectMergeRequest
+        # to have `save()`
+        if isinstance(group_item, GroupMergeRequest):
+            item = project.mergerequests.get(group_item.iid)
+        elif isinstance(group_item, GroupIssue):
+            item = project.issues.get(group_item.iid)
+        else:
+            _log.err(f"group_item has bad type: {type(item)}")
+
+        item.milestone_id = target.id
+        _log.msg(f"will update: {item._get_updated_data()}")
         if dry_run:
             pass
         else:
-            project_issue.save()
+            item.save()
     if dry_run:
         _log.msg(f"Would have updated {count} issues")
     else:

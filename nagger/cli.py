@@ -177,8 +177,8 @@ cli = click.CommandCollection(sources=[milestone, bot])
 @click.option("-n", "--dry-run", is_flag=True)
 @click.argument("milestone", required=False)
 @click.argument("target_milestone", required=False)
-def move_issues(dry_run, milestone, target_milestone):
-    """Move open issues from milestone to target milestone"""
+def move_milestone_items(dry_run, milestone, target_milestone):
+    """Move open issues and mrs from milestone to target milestone"""
     setup_logging()
     try:
         gl = get_env_gitlab()
@@ -186,4 +186,4 @@ def move_issues(dry_run, milestone, target_milestone):
         gl = get_oauth_gitlab()
     source = _prompt_milestone(gl, milestone)
     target = _prompt_milestone(gl, target_milestone)
-    release.move_opened_issues_between_milestones(gl, source, target, dry_run)
+    release.move_opened_items_between_milestones(gl, source, target, dry_run)
