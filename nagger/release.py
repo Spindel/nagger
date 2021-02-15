@@ -225,16 +225,16 @@ def get_milestones(gl):
     return result
 
 
-def projects_from_mrs(gl, merge_requests):
-    """Look up projects from merge requests"""
+def projects_from_project_items(gl, project_items):
+    """Look up projects from project_items that have project_id"""
     projects = {}
 
-    for mr in merge_requests:
-        if mr.project_id in projects:
+    for item in project_items:
+        if item.project_id in projects:
             continue
-        _log.info("Looking up project", project_id=mr.project_id)
-        project = gl.projects.get(mr.project_id)
-        projects[mr.project_id] = project
+        _log.info("Looking up project", project_id=item.project_id)
+        project = gl.projects.get(item.project_id)
+        projects[item.project_id] = project
     return projects
 
 
@@ -265,7 +265,7 @@ def make_milestone_changelog(gl, milestone) -> List[ProjectChangelog]:
     merged_mr = [m for m in mrs if m.state == "merged"]
 
     # mapping of project_id => project object
-    projects = projects_from_mrs(gl, merged_mr)
+    projects = projects_from_project_items(gl, merged_mr)
     # mapping of project_id => [ChangeLog, ChangeLog, ...]
     changes = {}
 
@@ -370,7 +370,7 @@ def milestone_fixup(gl, milestone_name, pretend=False):
     mrs = group.mergerequests.list(state="merged", all=True)
 
     # mapping of project_id => project object
-    projects = projects_from_mrs(gl, mrs)
+    projects = projects_from_project_items(gl, mrs)
     for proj_id, proj in projects_from_list(gl).items():
         projects[proj_id] = proj
 
@@ -414,7 +414,7 @@ def milestone_release(gl, tag_name, dry_run):
     mrs = milestone.merge_requests()
     merged_mrs = [m for m in mrs if m.state == "merged"]
 
-    projects = projects_from_mrs(gl, merged_mrs)
+    projects = projects_from_project_items(gl, merged_mrs)
     for proj_id, proj in projects_from_list(gl).items():
         projects[proj_id] = proj
 
