@@ -92,7 +92,7 @@ CI_API_V4_URL=https://gitlab.com/  NAGGUS_KEY=XXXXXx-XxXyyyyy nagger changelog v
 ## Open next milestone
 
 1. Creates milestone v3
-2. Moves all open issues and merge requests from v2 to v3
+2. ~~Moves all open issues and merge requests from v2 to v3~~ 
 
 ## Tag a release
 

@@ -11,7 +11,7 @@ from dateutil.parser import isoparse
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars, unbind_contextvars
 from jinja2 import Environment, PackageLoader
-
+from gitlab.v4.objects import GroupMergeRequest, GroupIssue
 from .logs import log_state
 from . import GROUP_NAME, RELEASE_PROJECTS, IGNORE_MR_PROJECTS, IGNORE_RELEASE_PROJECTS
 
@@ -225,16 +225,16 @@ def get_milestones(gl):
     return result
 
 
-def projects_from_mrs(gl, merge_requests):
-    """Look up projects from merge requests"""
+def projects_from_project_items(gl, project_items):
+    """Look up projects from project_items that have project_id"""
     projects = {}
 
-    for mr in merge_requests:
-        if mr.project_id in projects:
+    for item in project_items:
+        if item.project_id in projects:
             continue
-        _log.info("Looking up project", project_id=mr.project_id)
-        project = gl.projects.get(mr.project_id)
-        projects[mr.project_id] = project
+        _log.info("Looking up project", project_id=item.project_id)
+        project = gl.projects.get(item.project_id)
+        projects[item.project_id] = project
     return projects
 
 
@@ -265,7 +265,7 @@ def make_milestone_changelog(gl, milestone) -> List[ProjectChangelog]:
     merged_mr = [m for m in mrs if m.state == "merged"]
 
     # mapping of project_id => project object
-    projects = projects_from_mrs(gl, merged_mr)
+    projects = projects_from_project_items(gl, merged_mr)
     # mapping of project_id => [ChangeLog, ChangeLog, ...]
     changes = {}
 
@@ -370,7 +370,7 @@ def milestone_fixup(gl, milestone_name, pretend=False):
     mrs = group.mergerequests.list(state="merged", all=True)
 
     # mapping of project_id => project object
-    projects = projects_from_mrs(gl, mrs)
+    projects = projects_from_project_items(gl, mrs)
     for proj_id, proj in projects_from_list(gl).items():
         projects[proj_id] = proj
 
@@ -414,7 +414,7 @@ def milestone_release(gl, tag_name, dry_run):
     mrs = milestone.merge_requests()
     merged_mrs = [m for m in mrs if m.state == "merged"]
 
-    projects = projects_from_mrs(gl, merged_mrs)
+    projects = projects_from_project_items(gl, merged_mrs)
     for proj_id, proj in projects_from_list(gl).items():
         projects[proj_id] = proj
 
@@ -633,3 +633,49 @@ def ensure_wiki_page_with_content(gl, wiki_project_name, title, content, dry_run
         # so this is a workaround:
         wikis.update(slug, {"title": title, "content": content})
     _log.msg("wiki page successfully upserted")
+
+
+def move_opened_items_between_milestones(
+    gl, from_milestone_name, target_milestone_name, dry_run=True
+):
+    stone = get_milestone(gl, from_milestone_name)
+    # just to crash early if missing
+    target = get_milestone(gl, target_milestone_name)
+
+    bind_contextvars(milestone_target=target.title)
+    bind_contextvars(milestone_name=stone.title)
+    group = gl.groups.get(GROUP_NAME)
+
+    count = 0
+
+    group_issues = group.issues.list(state="opened", milestone=stone.title, all=True)
+    group_mrs = group.mergerequests.list(
+        state="opened", milestone=stone.title, all=True
+    )
+    all_items = group_issues + group_mrs
+    projects = projects_from_project_items(gl, all_items)
+
+    for group_item in all_items:
+        bind_contextvars(item=group_item.references["relative"])
+        count = count + 1
+        project = projects[group_item.project_id]
+        # `group_item` is now a GroupIssue or GroupMergeRequest
+        # we have to re-load to be a ProjectIssue or ProjectMergeRequest
+        # to have `save()`
+        if isinstance(group_item, GroupMergeRequest):
+            item = project.mergerequests.get(group_item.iid)
+        elif isinstance(group_item, GroupIssue):
+            item = project.issues.get(group_item.iid)
+        else:
+            _log.err(f"group_item has bad type: {type(item)}")
+
+        item.milestone_id = target.id
+        _log.msg(f"will update: {item._get_updated_data()}")
+        if dry_run:
+            pass
+        else:
+            item.save()
+    if dry_run:
+        _log.msg(f"Would have updated {count} issues")
+    else:
+        _log.msg(f"Updated {count} issues")
