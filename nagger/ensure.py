@@ -26,7 +26,7 @@ def ensure_branch(project, branch_name):
 
     branch_obj = {
         "branch": branch_name,
-        "ref": "master",
+        "ref": project.default_branch,
     }
     _log.info("Creating new branch", **branch_obj)
     branch = project.branches.create(branch_obj)
@@ -46,7 +46,7 @@ def ensure_mr(project, mr_title):
     mr_obj = {
         "title": mr_title,
         "source_branch": branch.name,
-        "target_branch": "master",
+        "target_branch": project.default_branch,
         "remove_source_branch": True,
     }
 

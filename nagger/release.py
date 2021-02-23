@@ -442,8 +442,14 @@ def milestone_release(gl, tag_name, dry_run):
         )
 
         proj_name = project.path_with_namespace
-        tag_prefs = {"tag_name": tag_name, "message": tag_message, "ref": "master"}
-        bind_contextvars(tag_name=tag_name, tag_message=tag_message, tag_ref="master")
+        tag_prefs = {
+            "tag_name": tag_name,
+            "message": tag_message,
+            "ref": project.default_branch,
+        }
+        bind_contextvars(
+            tag_name=tag_name, tag_message=tag_message, tag_ref=project.default_branch
+        )
         if dry_run:
             _log.msg("Would create tag")
         else:
