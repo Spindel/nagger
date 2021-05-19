@@ -16,6 +16,7 @@ IGNORE_MR_PROJECTS = [
     "ModioAB/sysadmin",
     "ModioAB/clientconfig",
     "ModioAB/caramel-client-rs",
+    "ModioAB/caramel",  # CI only project, own release cycle
 ]
 
 IGNORE_RELEASE_PROJECTS = [
@@ -45,6 +46,7 @@ RELEASE_PROJECTS = [
     "ModioAB/mbus-cross",
     "ModioAB/powercycle",
     "ModioAB/spilo",
+    "ModioAB/si-battery-control",
 ]
 
 
