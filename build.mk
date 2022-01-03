@@ -491,7 +491,7 @@ _log_cmd_image_publish = PUBLISH $(IMAGE_TAG)
 
 
 define _cmd_image_podman_temp-publish =
-  $(_podman) push docker://$(IMAGE_LOCAL_TAG) && \
+  $(_podman) push $(IMAGE_LOCAL_TAG) docker://$(IMAGE_LOCAL_TAG) && \
   $(_podman) rmi $(IMAGE_LOCAL_TAG)
 endef
 define _cmd_image_docker_temp-publish =
