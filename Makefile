@@ -12,7 +12,7 @@ check: ## check style with flake8
 	black --check nagger
 
 test: ## run tests quickly with the default Python
-	python3 setup.py test
+	pytest
 
 test-all: ## run tests on every Python version with tox
 	tox
