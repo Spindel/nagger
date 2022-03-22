@@ -27,6 +27,9 @@ IGNORE_RELEASE_PROJECTS = [
     "ModioAB/snmp_lookup",  # Has it's own release cycle
     "ModioAB/caramel-client-rs",  # Has it's own release cycle
     "ModioAB/modio-localapi",  # Has it's own release cycle
+    "ModioAB/modio-logger",  # Has it's own release cycle
+    "ModioAB/modio-mqttd",  # Has it's own release cycle
+    "ModioAB/modio-mqttbridge",  # Has it's own release cycle
 ]
 RELEASE_PROJECTS = [
     "ModioAB/afase",
@@ -38,6 +41,7 @@ RELEASE_PROJECTS = [
     "ModioAB/housekeeper",
     "ModioAB/containers",
     "ModioAB/grafana-datasource",
+    "ModioAB/grafana-caramel-client",
     "ModioAB/caramel-manager",
     "ModioAB/visualisation-editor",
     "ModioAB/nagger",
