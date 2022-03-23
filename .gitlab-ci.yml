@@ -37,7 +37,7 @@ test:
     - pip3 install -r requirements_dev.txt
     - pip3 install .
   script:
-    - python3 setup.py test
+    - pytest
 
 
 container:publish:
