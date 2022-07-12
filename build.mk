@@ -308,6 +308,15 @@ endif
 ## ship in binary packages or resources that are only used for
 ## installation inside the container.
 ##
+## Additional arguments to running the container build command may be
+## passed with IMAGE_BUILD_ARGS, e.g to pass extra "--build-arg" to
+## feed build time variables into the container. To avoid white space
+## dragons, consider passing the value in an environment variable, and
+## just add the variable name as a --build-arg.
+##
+## (deprecated) If the variable IMAGE_BUILD_FROM is set, it will be
+## passed as a "--build-arg" to the container build command.
+##
 ## The build-publish goal will build an image, optionally run a test,
 ## and push the image.
 ##
@@ -410,10 +419,16 @@ IMAGE_TAG = $(_image_repo):$(_image_tag_prefix)$(IMAGE_TAG_SUFFIX)
 _podman = podman
 
 
-ifdef IMAGE_BUILD_FROM
-_image_build_from_arg = --build-arg=IMAGE_BUILD_FROM="$(IMAGE_BUILD_FROM)"
+ifdef IMAGE_BUILD_ARGS
+_image_build_args = $(IMAGE_BUILD_ARGS)
 else
-_image_build_from_arg =
+_image_build_args =
+endif
+
+
+ifdef IMAGE_BUILD_FROM
+export IMAGE_BUILD_FROM
+_image_build_args += --build-arg=IMAGE_BUILD_FROM
 endif
 
 
@@ -458,7 +473,7 @@ define _cmd_image_podman_build =
     --build-arg=URL="$(CI_PROJECT_URL)" \
     --build-arg=DATE="$(_date)" \
     --build-arg=HOST="$(_host)" \
-    $(_image_build_from_arg) \
+    $(_image_build_args) \
     --tag=$(IMAGE_LOCAL_TAG) \
     .
 endef
@@ -471,7 +486,7 @@ define _cmd_image_docker_build =
     --build-arg=URL="$(CI_PROJECT_URL)" \
     --build-arg=DATE="$(_date)" \
     --build-arg=HOST="$(_host)" \
-    $(_image_build_from_arg) \
+    $(_image_build_args) \
     --tag=$(IMAGE_LOCAL_TAG) \
     .
 endef
@@ -761,12 +776,12 @@ endif
 ######################################################################
 
 ## Run `make update-build.mk` to make a git commit where this file is
-## replaced with the version from master in the GitLab project.
+## replaced with the version from main in the GitLab project.
 
 # Use the web interface, since git archive --remote against GitLab
 # does not appear to work.
 _buildmk_baseurl = https://gitlab.com/ModioAB/build.mk
-_buildmk_release_ref = master
+_buildmk_release_ref = main
 _buildmk_repo = $(_buildmk_baseurl).git
 
 define _cmd_update_buildmk =
