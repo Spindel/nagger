@@ -42,4 +42,9 @@ test:
 
 container:publish:
   extends: .container:publish
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      variables:
+        IMAGE_TAG_SUFFIX: latest
+    - !reference [.container:publish, rules]
 ...
