@@ -4,7 +4,7 @@ from structlog.contextvars import bind_contextvars
 _log = get_logger(__name__)
 
 
-def gitlab_file_exists(project, file_path, branch="master"):
+def gitlab_file_exists(project, file_path, branch="main"):
     """Ensure a file exists in the path for the project"""
     from gitlab.exceptions import GitlabGetError
 

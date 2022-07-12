@@ -11,7 +11,7 @@ A small Merge request nagger and some tooling that came from that
 3. Add a CI step like this:
 
 ```yaml
-image: registry.gitlab.com/modioab/naggus:master
+image: registry.gitlab.com/modioab/naggus:latest
 script:
 - nagger nag
 ```
@@ -29,7 +29,7 @@ Milestone, and comment on that.
 3. Add a CI step like this:
 
 ```yaml
-image: registry.gitlab.com/modioab/naggus:master
+image: registry.gitlab.com/modioab/naggus:latest
 only:
 - tags
 script:
