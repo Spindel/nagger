@@ -12,11 +12,28 @@ include:
       - /ci/container.yml
 
 
+wheel:
+  image: ${PYTHON_IMAGE}
+  stage: build
+  script:
+    - pip install -U pip wheel
+    - pip wheel --wheel-dir=wheel .
+  artifacts:
+    expire_in: 1 hour
+    paths:
+      - wheel
+
 container:build:
   extends: .container:build
+  variables:
+    HAVE_ARTIFACTS: 1
+  needs:
+    - wheel
 
 # Run "nagger nag" from our freshly built container
 nagger:ci:
+  needs:
+    - container:build
   image: registry.gitlab.com/modioab/nagger:${CI_PIPELINE_ID}
   stage: test
   script:

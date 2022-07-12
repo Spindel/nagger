@@ -103,3 +103,6 @@ ENV/
 .mypy_cache/
 nagger.tar
 dummy.tar
+
+# container stuff
+/wheel/

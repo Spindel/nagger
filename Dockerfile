@@ -10,6 +10,6 @@ ARG DATE=unknown
 
 LABEL "se.modio.ci.url"=$URL "se.modio.ci.branch"=$BRANCH "se.modio.ci.commit"=$COMMIT "se.modio.ci.host"=$HOST "se.modio.ci.date"=$DATE
 
-ADD nagger.tar /
-RUN cd /srv/app && pip install .
+RUN python3 -m pip install --no-index --find-links=/build/ nagger
+
 CMD ["/usr/local/bin/nagger"]
