@@ -16,7 +16,7 @@ def gitlab_file_exists(project, file_path, branch="main"):
 
 def ensure_branch(project, branch_name):
     """Make sure a branch named "branch_name" exists in the project"""
-    branches = project.branches.list()
+    branches = project.branches.list(iterator=True)
     found_branches = [br for br in branches if br.name == branch_name]
     if found_branches:
         _log.info(
@@ -35,7 +35,7 @@ def ensure_branch(project, branch_name):
 
 def ensure_mr(project, mr_title):
     """Make sure an MR named mr_title  exists in the project"""
-    mrs = project.mergerequests.list()
+    mrs = project.mergerequests.list(iterator=True)
     found_mrs = [m for m in mrs if m.title == mr_title]
     if found_mrs:
         _log.info("Found mr", mr_title=mr_title, mr_total=len(found_mrs))

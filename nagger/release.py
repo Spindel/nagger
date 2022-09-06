@@ -4,7 +4,6 @@ from enum import IntEnum
 from dataclasses import dataclass
 from datetime import timezone, datetime
 from typing import List, Optional
-from urllib.parse import quote_plus
 
 from dateutil.parser import isoparse
 
@@ -613,17 +612,17 @@ def milestone_wiki(gl, milestone_name, dry_run=True, wiki_project_name=WIKI_PROJ
 
 def ensure_wiki_page_with_content(gl, wiki_project_name, title, content, dry_run=True):
     from gitlab.exceptions import GitlabGetError
+    from gitlab.exceptions import GitlabUpdateError
 
     bind_contextvars(wiki_project_name=wiki_project_name, wiki_title=title)
     wiki_project = gl.projects.get(wiki_project_name)
     wikis = wiki_project.wikis
 
     bind_contextvars(wiki_page_title=title)
-    slug = page = None
+    page = None
     try:
         page = wikis.get(title)
-        slug = quote_plus(page.slug)
-        bind_contextvars(action="Update page", slug=slug)
+        bind_contextvars(action="Update page", slug=page.slug)
     except GitlabGetError:
         bind_contextvars(action="Create new")
 
@@ -635,9 +634,14 @@ def ensure_wiki_page_with_content(gl, wiki_project_name, title, content, dry_run
     if page is None:
         wikis.create({"title": title, "content": content})
     else:
-        # page.save() does not url-encode slashes properly
-        # so this is a workaround:
-        wikis.update(slug, {"title": title, "content": content})
+        page.content = content
+        page.title = title
+        try:
+            page.save()
+        except GitlabUpdateError as ex:
+            err_msg = f"{ex.__class__.__name__}: {ex}"
+            _log.exception("Failed to update wiki page", error=err_msg)
+            raise
     _log.msg("wiki page successfully upserted")
 
 

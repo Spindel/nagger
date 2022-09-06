@@ -30,6 +30,7 @@ IGNORE_RELEASE_PROJECTS = [
     "ModioAB/modio-logger",  # Has it's own release cycle
     "ModioAB/modio-mqttd",  # Has it's own release cycle
     "ModioAB/modio-mqttbridge",  # Has it's own release cycle
+    "ModioAB/rust-fsipc",  # Has it's own release cycle
 ]
 RELEASE_PROJECTS = [
     "ModioAB/afase",
