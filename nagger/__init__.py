@@ -28,7 +28,6 @@ IGNORE_RELEASE_PROJECTS = [
     "ModioAB/caramel-client-rs",  # Has it's own release cycle
     "ModioAB/modio-localapi",  # Has it's own release cycle
     "ModioAB/modio-logger",  # Has it's own release cycle
-    "ModioAB/modio-mqttd",  # Has it's own release cycle
     "ModioAB/modio-mqttbridge",  # Has it's own release cycle
     "ModioAB/rust-fsipc",  # Has it's own release cycle
 ]
@@ -52,6 +51,7 @@ RELEASE_PROJECTS = [
     "ModioAB/powercycle",
     "ModioAB/spilo",
     "ModioAB/si-battery-control",
+    "ModioAB/modio-mqttd",
 ]
 
 
