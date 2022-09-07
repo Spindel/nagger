@@ -52,6 +52,7 @@ RELEASE_PROJECTS = [
     "ModioAB/spilo",
     "ModioAB/si-battery-control",
     "ModioAB/modio-mqttd",
+    "ModioAB/scada-hello",
 ]
 
 
